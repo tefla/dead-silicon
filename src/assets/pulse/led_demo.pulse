@@ -1,0 +1,24 @@
+; LED Demo
+; Blinks LED at $F030 on and off
+
+LED_PORT = $F030
+
+.org $0200
+main:
+    LDA #1
+    STA LED_PORT
+    JSR delay
+    LDA #0
+    STA LED_PORT
+    JSR delay
+    JMP main
+
+delay:
+    LDX #$FF
+delay_loop:
+    DEX
+    BNE delay_loop
+    RTS
+
+.org $FFFC
+.word main
