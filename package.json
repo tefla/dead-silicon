@@ -1,0 +1,22 @@
+{
+  "name": "dead-silicon",
+  "version": "1.0.0",
+  "description": "A puzzle game where you fix hardware and software bugs using Wire (HDL) and Pulse (assembly)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "keywords": ["langjam", "hdl", "assembly", "puzzle", "game"],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.6",
+    "vitest": "^4.0.14"
+  }
+}
