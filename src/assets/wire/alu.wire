@@ -13,10 +13,10 @@ module alu4(a:4, b:4, op:3) -> (result:4, zero, carry):
   ; Select result based on op[0:1]
   mux01 = mux4(op[0], add_result.sum, sub_result.sum)
   mux23 = mux4(op[0], and_result, or_result)
-  result = mux4(op[1], mux01, mux23)
+  base_result = mux4(op[1], mux01, mux23)
 
   ; Special case for XOR when op[2]=1
-  result = mux4(op[2], result, xor_result)
+  result = mux4(op[2], base_result, xor_result)
 
   ; Flags
   zero = nor(nor(result[0], result[1]), nor(result[2], result[3]))

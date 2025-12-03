@@ -40,6 +40,38 @@ module mux(a, b, sel) -> out:
   t1 = and(b, sel)
   out = or(t0, t1)
 
+; 4-bit NOT gate
+module not4(a:4) -> out:4:
+  out0 = not(a[0])
+  out1 = not(a[1])
+  out2 = not(a[2])
+  out3 = not(a[3])
+  out = concat(out3, out2, out1, out0)
+
+; 4-bit AND gate
+module and4(a:4, b:4) -> out:4:
+  out0 = and(a[0], b[0])
+  out1 = and(a[1], b[1])
+  out2 = and(a[2], b[2])
+  out3 = and(a[3], b[3])
+  out = concat(out3, out2, out1, out0)
+
+; 4-bit OR gate
+module or4(a:4, b:4) -> out:4:
+  out0 = or(a[0], b[0])
+  out1 = or(a[1], b[1])
+  out2 = or(a[2], b[2])
+  out3 = or(a[3], b[3])
+  out = concat(out3, out2, out1, out0)
+
+; 4-bit XOR gate
+module xor4(a:4, b:4) -> out:4:
+  out0 = xor(a[0], b[0])
+  out1 = xor(a[1], b[1])
+  out2 = xor(a[2], b[2])
+  out3 = xor(a[3], b[3])
+  out = concat(out3, out2, out1, out0)
+
 ; 4-bit 2-to-1 multiplexer - sel=0 selects a, sel=1 selects b
 module mux4(sel, a:4, b:4) -> out:4:
   out0 = mux(a[0], b[0], sel)
