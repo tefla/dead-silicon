@@ -8,147 +8,214 @@
 
 ### The Pitch
 
-> "We built an HDL called Wire. We designed a CPU in it. We wrote firmware in our assembly language, Pulse. You connect to a broken prototype machine via serial terminal, fix corrupted hardware AND buggy software, and uncover what's hidden inside."
+> "You've crash-landed on a desolate moon. Your Apollo-era spacecraft is damaged. The onboard computer — a primitive but hackable system — is your only hope. Fix the circuits with Wire. Patch the software with Pulse. Survive."
+
+### The Setting
+
+**1973. An alternate timeline.** The Apollo program continued. Missions went further. You're the systems engineer aboard *Cygnus-7*, a deep space survey mission. Something went wrong during orbital insertion. You crashed. The pilot is unconscious. Life support is failing. The onboard guidance computer — a ruggedized system built from discrete logic chips — took damage in the impact.
+
+The good news: you have the computer's schematics and source code. The bad news: half the circuits are fried, the software is corrupted, and you have limited oxygen.
+
+**You're not a pilot. You're an engineer.** And this is exactly what you trained for.
 
 ### The Game
 
-You've gained access to an experimental FPGA-based computer. The system is damaged — hardware bugs, corrupted circuits, sabotaged firmware, locked partitions. Using your PC, you write Wire and Pulse fixes, flash them to the remote system, slowly bringing it back to life and uncovering its secrets.
+Your spacecraft's computer is built from hardware defined in **Wire** (our HDL) and runs firmware written in **Pulse** (our assembly language). The crash damaged both. Systems are offline. Sensors are dark. Life support is running on backup power.
 
-Some bugs are accidents. Some look deliberate. That's part of the mystery.
+Through your portable diagnostic terminal, you can:
+- Examine the damaged circuit schematics (Wire files)
+- Read the corrupted firmware code (Pulse files)
+- Flash repairs to the spacecraft's computer
+- Run diagnostics and test your fixes
+- Slowly bring systems back online to survive
+
+**Each system you repair buys you time and reveals more of what went wrong.**
 
 ### Languages Created
 
-| Language  | Purpose                       | Who Writes It                                         |
-| --------- | ----------------------------- | ----------------------------------------------------- |
-| **Wire**  | Hardware Description Language | Player (to fix hardware bugs)                         |
-| **Pulse** | Assembly for the FPGA's CPU   | Us (shipped firmware) + Player (to fix software bugs) |
+| Language  | Purpose                       | Who Uses It                                         |
+| --------- | ----------------------------- | --------------------------------------------------- |
+| **Wire**  | Hardware Description Language | You (to repair damaged circuits)                    |
+| **Pulse** | Assembly for the ship's CPU   | NASA engineers (original) + You (to patch software) |
+
+### Why This Works
+
+The Apollo-era setting is perfect for hardware-level puzzles:
+- **Period-appropriate technology**: 1970s computers were simple enough to understand at the gate level
+- **Life-or-death stakes**: Every repair matters — you're surviving, not just debugging
+- **Authentic constraints**: Limited memory, simple instruction sets, discrete logic
+- **Discovery through repair**: As you fix systems, you uncover what caused the crash
+- **Real engineering**: Apollo astronauts actually had to understand their systems deeply
 
 ---
 
 ## 2. Architecture Overview
 
-### The Two Machines
+### The Physical Setup
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  YOUR PC (Browser)                                                  │
+│  PORTABLE DIAGNOSTIC TERMINAL (Your Interface - Browser)            │
 │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐                    │
-│  │ Code Editor │ │ File Browser│ │ Serial Term │ ←── nice, modern  │
-│  │ (Wire/Pulse)│ │ (your work) │ │ (to FPGA)   │                    │
+│  │ Schematic   │ │ Code Viewer │ │ System      │                    │
+│  │ Editor      │ │ (Pulse ASM) │ │ Console     │ ← battery-powered │
+│  │ (Wire HDL)  │ │             │ │             │   portable unit    │
 │  └─────────────┘ └─────────────┘ └─────────────┘                    │
 │        │                              │                              │
-│        └──── flash ───────────────────┘                              │
+│        └──── umbilical ───────────────┘                              │
 └───────────────────────────────────────│─────────────────────────────┘
-                                        │ serial connection
+                                        │ hardwired connection
                                         ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  THE FPGA (Simulated)                                               │
+│  CYGNUS-7 GUIDANCE COMPUTER (Damaged)                               │
 │  ┌─────────────────────────────────────────────────────────────┐    │
 │  │ Hardware Layer (defined in Wire)                            │    │
-│  │ - CPU, ALU, registers, memory controller                    │    │
-│  │ - Display driver, keyboard input                            │    │
-│  │ - Storage controller, crypto unit                           │    │
+│  │ - CPU core, ALU, registers                                  │    │
+│  │ - Memory controller, I/O bus                                │    │
+│  │ - Life support interface, navigation, comms                 │    │
 │  └─────────────────────────────────────────────────────────────┘    │
 │  ┌─────────────────────────────────────────────────────────────┐    │
-│  │ Firmware (written in Pulse, pre-loaded)                     │    │
-│  │ - Boot sequence, shell, filesystem                          │    │
-│  │ - Responds to your serial commands                          │    │
+│  │ Flight Software (written in Pulse)                          │    │
+│  │ - Boot sequence, self-test routines                         │    │
+│  │ - System monitoring, sensor interfaces                      │    │
+│  │ - Navigation calculations, comm protocols                   │    │
 │  └─────────────────────────────────────────────────────────────┘    │
 │                                                                      │
-│  ← broken, cryptic, hostile                                         │
+│  ← damaged, partially functional, critical to survival              │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### What Each Side Does
+### The Spacecraft Systems
 
-| Your PC                                     | The FPGA                  |
-| ------------------------------------------- | ------------------------- |
-| Comfortable editor with syntax highlighting | Broken, glitchy output    |
-| File browser for your Wire/Pulse files      | Limited shell access      |
-| `flash <file.wire>` command                 | Reboots with new hardware |
-| Modern, helpful                             | Hostile, mysterious       |
+| System          | Hardware (Wire)              | Software (Pulse)              | Status at Start |
+| --------------- | ---------------------------- | ----------------------------- | --------------- |
+| **Core CPU**    | ALU, decoder, registers      | Boot sequence                 | Damaged         |
+| **Life Support**| O2 sensor, CO2 scrubber ctrl | Atmosphere monitoring         | Critical        |
+| **Power**       | Solar controller, battery    | Power management              | Backup only     |
+| **Navigation**  | Star tracker, IMU interface  | Position calculation          | Offline         |
+| **Comms**       | Radio controller, encoder    | Signal protocols              | Offline         |
+| **Sensors**     | ADC, multiplexer             | Telemetry collection          | Partial         |
+
+### What You're Working With
+
+| Diagnostic Terminal                    | Ship's Computer               |
+| -------------------------------------- | ----------------------------- |
+| Portable, battery-powered              | Damaged in crash              |
+| Has all schematics and source code     | Circuits partially fried      |
+| Can simulate repairs before flashing   | Software corrupted            |
+| Modern interface for 70s tech          | Your only hope for survival   |
 
 ---
 
 ## 3. Player Experience
 
-### The Loop
+### The Survival Loop
 
 ```
-1. Connect to FPGA via serial terminal
-2. Try to do something (read a file, access storage)
-3. It fails — error message hints at hardware OR software problem
-4. Find/examine the relevant Wire or Pulse file on your PC
-5. Identify and fix the bug
-6. Flash the fix to FPGA (hardware or firmware)
-7. FPGA reboots, try again
-8. Success — new area/capability unlocked
-9. Explore, find next obstacle, discover story fragments
-10. Repeat until you uncover the secret
+1. Check system status — what's critical? (O2 dropping, power failing)
+2. Run diagnostics — which component is damaged?
+3. Open the schematic (Wire) or code (Pulse) for that system
+4. Find the damage — fried gate? corrupted instruction?
+5. Repair it using the visual editor or code
+6. Flash the fix to the ship's computer
+7. System comes online — immediate benefit (more O2, sensors work)
+8. New data reveals more about what went wrong
+9. New systems become accessible, exposing new damage
+10. Survive. Understand. Escape.
 ```
 
-### Example Session (Wire Puzzle)
+### Example Session: Life Support Crisis (Wire Puzzle)
 
 ```
-┌─ YOUR PC ──────────────────────────────────────────────────────────┐
-│ ┌─ Files ────┐ ┌─ Editor: alu.wire ──────────────────────────────┐ │
-│ │            │ │                                                  │ │
-│ │ ▼ cpu/     │ │ module alu(a:8, b:8, op:3) -> out:8:             │ │
-│ │  alu.wire ●│ │   add_result = adder8(a, b, 0)                   │ │
-│ │  regs.wire │ │   sub_result = adder8(a, invert8(b), 0)  ; BUG!  │ │
-│ │ decode.wire│ │   ...                                            │ │
-│ │ ▼ mem/     │ │                                                  │ │
-│ │ ▼ io/      │ └──────────────────────────────────────────────────┘ │
-│ │ ▼ firmware/│                                                      │
-│ │ shell.pulse│ ┌─ TERMINAL ─────────────────────────────────────┐  │
-│ │    fs.pulse│ │ DEAD SILICON v0.1                              │  │
-│ └────────────┘ │ BOOT ERROR: ALU SELF-TEST FAILED               │  │
-│                │ SUBTRACTION UNIT MALFUNCTION                   │  │
-│                │ $ _                                             │  │
-└────────────────┴─────────────────────────────────────────────────┴──┘
+┌─ DIAGNOSTIC TERMINAL ─────────────────────────────────────────────┐
+│ ┌─ Systems ───┐ ┌─ Schematic: o2_sensor.wire ────────────────────┐│
+│ │             │ │                                                 ││
+│ │ ▼ cpu/      │ │ ; O2 sensor analog-to-digital interface        ││
+│ │ ▼ lifesup/  │ │ module o2_sensor(analog:8, clk) -> level:8:    ││
+│ │  o2.wire   ●│ │   sampled = dff(analog, clk)                   ││
+│ │  co2.wire   │ │   level = sampled[0:6]  ; BUG: should be [0:7] ││
+│ │  scrubber   │ │                                                 ││
+│ │ ▼ power/    │ └─────────────────────────────────────────────────┘│
+│ │ ▼ nav/      │                                                    │
+│ └─────────────┘ ┌─ CONSOLE ───────────────────────────────────────┐│
+│                 │ CYGNUS-7 DIAGNOSTIC CONSOLE                     ││
+│                 │ ══════════════════════════════                  ││
+│                 │ WARNING: O2 SENSOR MALFUNCTION                  ││
+│                 │ Reading: 47%  (SUSPECT - was 94% at launch)     ││
+│                 │                                                 ││
+│                 │ > diag lifesup                                  ││
+│                 │ O2 SENSOR: FAIL - bit 7 stuck low               ││
+│                 │ CO2 SCRUBBER: OFFLINE - awaiting O2 data        ││
+│                 │ > _                                             ││
+└─────────────────┴─────────────────────────────────────────────────┘│
 ```
 
-Player realizes: subtraction needs carry-in set to 1 for two's complement.
+**The problem:** O2 sensor shows 47% when it should show 94%. The reading is exactly half. Diagnostics show "bit 7 stuck low."
 
-Fixes alu.wire:
-`sub_result = adder8(a, invert8(b), 1)  ; fixed!`
+**Player realizes:** The slice `[0:6]` only captures 7 bits, not 8. The high bit is being dropped.
 
-Types in terminal:
-`> flash cpu/alu.wire`
+**The fix:** Change `level = sampled[0:6]` to `level = sampled[0:7]`
 
-FPGA reboots, self-test passes, shell loads.
-
-### Example Session (Pulse Puzzle)
-
+**Flash and reboot:**
 ```
-┌─ YOUR PC ──────────────────────────────────────────────────────────┐
-│ ┌─ Files ────┐ ┌─ Editor: shell.pulse ───────────────────────────┐ │
-│ │            │ │                                                  │ │
-│ │ ▼ cpu/     │ │ cmd_cat:                                         │ │
-│ │ ▼ mem/     │ │     JSR open_file                                │ │
-│ │ ▼ io/      │ │     JSR read_byte    ; read first char           │ │
-│ │ ▼ firmware/│ │ print_loop:          ; BUG: first char lost!     │ │
-│ │shell.pulse●│ │     JSR print_char                               │ │
-│ │   fs.pulse │ │     JSR read_byte                                │ │
-│ │crypto.pulse│ │     CMP #0                                       │ │
-│ └────────────┘ │     JNE print_loop                               │ │
-│                │     RTS                                          │ │
-│                └──────────────────────────────────────────────────┘ │
-│                ┌─ TERMINAL ─────────────────────────────────────┐  │
-│                │ $ cat /home/chen/notes/day_01.txt              │  │
-│                │ ay 1: The prototype arrived today.             │  │
-│                │ ^ missing 'D'!                                 │  │
-│                │ $ _                                             │  │
-└────────────────┴─────────────────────────────────────────────────┴──┘
+> flash lifesup/o2.wire
+Compiling... OK
+Flashing to EEPROM bank 2... OK
+System reboot in 3... 2... 1...
+
+CYGNUS-7 GUIDANCE COMPUTER v2.1.4
+SELF-TEST: O2 SENSOR: OK (94%)
+CO2 SCRUBBER: ONLINE
+Life support nominal. Estimated O2: 4 hours 23 minutes.
 ```
 
-Player realizes: first byte is read but never printed before the loop.
+**Reward:** Accurate O2 reading. CO2 scrubber comes online (it was waiting for valid sensor data). You've bought yourself time.
 
-Fixes shell.pulse by adding `JSR print_char` before `print_loop` label.
+### Example Session: Finding Out What Happened (Pulse Puzzle)
 
-Types: `> flash --firmware shell.pulse`
+```
+┌─ DIAGNOSTIC TERMINAL ─────────────────────────────────────────────┐
+│ ┌─ Systems ───┐ ┌─ Code: flight_recorder.pulse ──────────────────┐│
+│ │             │ │                                                 ││
+│ │ ▼ cpu/      │ │ read_last_entry:                                ││
+│ │ ▼ lifesup/  │ │     LDA log_count                               ││
+│ │ ▼ storage/  │ │     SUB #1           ; get index of last entry  ││
+│ │  recorder●  │ │     TAX                                         ││
+│ │  telemetry  │ │     LDA log_base,X   ; BUG: should be log_base  ││
+│ │             │ │     JSR print_entry  ; prints garbage           ││
+│ │             │ │     RTS                                         ││
+│ └─────────────┘ └─────────────────────────────────────────────────┘│
+│                 ┌─ CONSOLE ───────────────────────────────────────┐│
+│                 │ > flightlog --last                              ││
+│                 │                                                 ││
+│                 │ ENTRY 47 [CORRUPTED]:                           ││
+│                 │ ░░▓▒░ unable to parse ░▒▓░░                     ││
+│                 │                                                 ││
+│                 │ > diag storage                                  ││
+│                 │ FLIGHT RECORDER: READABLE                       ││
+│                 │ LAST ENTRY INDEX: 47                            ││
+│                 │ > _                                             ││
+└─────────────────┴─────────────────────────────────────────────────┘│
+```
 
-Now `cat` shows complete file contents. The mystery deepens...
+**The problem:** Flight recorder data is readable but the "last entry" command shows garbage.
+
+**Player investigates:** The storage is fine. The code loads `log_count`, subtracts 1 to get the index... then uses indexed addressing `log_base,X` which adds X to the base twice conceptually. Should just load from `(log_ptr),Y` pattern.
+
+**The fix:** Fix the addressing mode to properly read from the calculated offset.
+
+**After the fix:**
+```
+> flightlog --last
+
+ENTRY 47 [T+72:14:33]:
+PILOT: "Sensor ghost again. Third time this orbit."
+NAV: "Adjusting trajectory to compensate."
+ENG: "I'm seeing anomalies in the guidance computer. Running diag—"
+[TRANSMISSION ENDS]
+```
+
+**The mystery deepens:** What sensor ghost? What were they compensating for? The last entry cuts off mid-word. Now you need to get navigation online to understand what they were seeing...
 
 ---
 
@@ -156,31 +223,85 @@ Now `cat` shows complete file contents. The mystery deepens...
 
 ### The Mystery
 
-The FPGA is an experimental prototype. Someone was using it for something. They're gone now. The system is damaged — maybe intentionally. What were they working on? What's in the encrypted partition?
+You know the facts: You're the systems engineer on Cygnus-7. You crashed during orbital insertion around an uncharted moon. The pilot is unconscious. The computer is damaged. You need to survive.
 
-### Progression Layers
+But as you repair systems and recover data, questions emerge:
+- Why did the guidance computer malfunction during insertion?
+- What were those "sensor ghosts" the crew kept seeing?
+- Why does the navigation data look... wrong?
+- What is that structure on the surface below you?
 
-| Layer      | What's Broken            | What You Unlock  | What You Find                   |
-| ---------- | ------------------------ | ---------------- | ------------------------------- |
-| 1. Boot    | Basic gates, clock       | System boots     | First log fragments             |
-| 2. CPU     | ALU, instruction decoder | Shell works      | More logs, hints about storage  |
-| 3. Memory  | Controller, addressing   | Read/write works | Filesystem accessible           |
-| 4. I/O     | Display driver, keyboard | Full terminal    | Personal notes, encrypted files |
-| 5. Storage | Disk controller          | External storage | Research data, the secret       |
-| 6. Crypto  | XOR, shift operations    | Decryption       | The truth                       |
+### The Survival Arc
+
+| Phase | Priority | Systems to Repair | What You Learn |
+| ----- | -------- | ----------------- | -------------- |
+| **1. IMMEDIATE** | Stay alive | Life support (O2, CO2) | Basic situation assessment |
+| **2. STABILIZE** | Assess damage | Power, basic sensors | How bad the crash really was |
+| **3. UNDERSTAND** | What happened? | Flight recorder, logs | The crew's final moments |
+| **4. ORIENT** | Where are you? | Navigation, star tracker | Your position — and the anomaly |
+| **5. CONTACT** | Call for help | Communications, antenna | The signal that's already there |
+| **6. DECIDE** | What now? | Full computer restoration | The choice |
 
 ### Narrative Beats
 
-Each layer reveals fragments:
+**Phase 1 - IMMEDIATE (Life Support)**
+```
+Systems Online: O2 sensor, CO2 scrubber
+Discovery: You have 4 hours of oxygen. The pilot's vitals are stable but critical.
+Tone: Urgent, survival-focused. No time for questions.
+```
 
-- **Layer 1**: "System initializing... Dr. Chen's research terminal"
-- **Layer 2**: "Warning: Unauthorized access will be logged"
-- **Layer 3**: "File: /home/chen/notes/day_47.txt"
-- **Layer 4**: Personal logs — growing paranoid, "they're watching"
-- **Layer 5**: Research data — what they were actually building
-- **Layer 6**: The reveal — what happened, why it matters
+**Phase 2 - STABILIZE (Power & Sensors)**
+```
+Systems Online: Solar panels, battery monitor, hull sensors
+Discovery: Impact damage is severe. You're not taking off without repairs.
+The ship's external cameras show... something on the surface. A structure?
+Tone: Growing unease. This moon was supposed to be barren.
+```
 
-The mystery pulls you forward. The Wire puzzles are the _how_, the story is the _why_.
+**Phase 3 - UNDERSTAND (Flight Recorder)**
+```
+Systems Online: Storage, flight recorder, crew logs
+Discovery: The crew saw "sensor ghosts" for three days before the crash.
+The guidance computer started making unauthorized course corrections.
+Then it aimed you directly at this moon.
+Tone: Paranoia. The crash wasn't an accident.
+```
+
+**Phase 4 - ORIENT (Navigation)**
+```
+Systems Online: Star tracker, IMU, position calculator
+Discovery: You're not where you should be. Not even close.
+The guidance computer's "malfunction" brought you here deliberately.
+The structure on the surface is emitting a signal.
+Tone: Cosmic dread. Something wanted you here.
+```
+
+**Phase 5 - CONTACT (Communications)**
+```
+Systems Online: Radio, signal processor, antenna control
+Discovery: There's already a signal. It's been broadcasting for... a long time.
+It's not human. But it's clearly meant for humans.
+It's instructions. For repairing something.
+Tone: First contact. The signal is patient. It's been waiting.
+```
+
+**Phase 6 - DECIDE (Full Restoration)**
+```
+Systems Online: Everything. The ship could fly again.
+Choice: The signal wants you to come down. To bring the ship's computer.
+You could try to leave. Warn Earth. But the computer might not let you.
+Or you could descend. Meet what's been waiting.
+Tone: Transcendence or terror. Player's choice.
+```
+
+### The Revelation
+
+The "sensor ghosts" weren't malfunctions. Something was probing the ship's computer. Learning it. Then it took control, just enough to guide Cygnus-7 here, to crash-land you close enough to reach the structure, but not so hard you'd all die.
+
+**It's been repairing the guidance computer alongside you.** Every fix you make, it's also making. It's teaching you. Preparing you.
+
+The question isn't whether the computer was sabotaged. It's whether you were rescued or captured.
 
 ---
 
@@ -425,319 +546,306 @@ Files unlock as you fix more hardware.
 
 ### 8.1 Two Puzzle Types
 
-| Type         | Language | What's Broken           | How Player Fixes                    |
-| ------------ | -------- | ----------------------- | ----------------------------------- |
-| **Hardware** | Wire     | Circuits, gates, wiring | Edit `.wire` files, flash to FPGA   |
-| **Firmware** | Pulse    | Code bugs, logic errors | Edit `.pulse` files, flash firmware |
+| Type         | Language | What's Damaged           | How Player Repairs                    |
+| ------------ | -------- | ------------------------ | ------------------------------------- |
+| **Hardware** | Wire     | Fried circuits, broken gates | Edit `.wire` schematics, flash to ship |
+| **Software** | Pulse    | Corrupted code, logic errors | Edit `.pulse` code, flash firmware    |
 
-Some bugs are accidental. Some look... deliberate. This is part of the mystery.
+The crash damaged both hardware and software. Some damage is from the impact. Some damage... might not be.
 
-### 8.2 Wire Puzzle Types
+### 8.2 Wire Puzzle Types (Hardware Damage)
 
-| Type                  | Example                               |
-| --------------------- | ------------------------------------- |
-| **Missing gate**      | OR gate wired as AND                  |
-| **Wrong connection**  | Output fed to wrong input             |
-| **Missing carry**     | Adder doesn't chain carry             |
-| **Off-by-one**        | Counter resets at wrong value         |
-| **Timing bug**        | Clock edge wrong                      |
-| **Missing inversion** | Forgot to invert for two's complement |
-| **Incomplete module** | XOR unit missing entirely             |
+| Type                  | Example                               | Survival Context |
+| --------------------- | ------------------------------------- | ---------------- |
+| **Bit truncation**    | Sensor reading clipped to 7 bits      | O2 shows half actual value |
+| **Missing gate**      | OR gate damaged, acts as pass-through | CO2 alarm never triggers |
+| **Wrong connection**  | Cross-wired bus lines                 | Sensor data scrambled |
+| **Missing carry**     | Adder chain broken                    | Navigation math wrong |
+| **Timing bug**        | Clock edge corrupted                  | Data sampled at wrong time |
+| **Stuck bits**        | Output always high/low                | System thinks tank is empty |
+| **Missing inversion** | Two's complement broken               | Subtraction fails |
 
-### 8.3 Pulse Puzzle Types
+### 8.3 Pulse Puzzle Types (Software Corruption)
 
-| Type                     | Example                                            |
-| ------------------------ | -------------------------------------------------- |
-| **Off-by-one**           | Loop starts at 1 instead of 0, skipping first item |
-| **Wrong comparison**     | `JEQ` instead of `JNE`, logic inverted             |
-| **Wrong register**       | Uses X when it should use Y                        |
-| **Missing increment**    | Forgot `INX`, infinite loop                        |
-| **String handling**      | Null terminator check wrong                        |
-| **Intentional sabotage** | Someone commented out a check                      |
-| **Hidden feature**       | Backdoor command left by previous user             |
+| Type                     | Example                                | Survival Context |
+| ------------------------ | -------------------------------------- | ---------------- |
+| **Off-by-one**           | Loop skips first sensor reading        | Missing critical data |
+| **Wrong comparison**     | `JEQ` instead of `JNE`                 | Safety check inverted |
+| **Corrupted address**    | Wrong memory offset in calculation     | Results are garbage |
+| **Missing instruction**  | `RTS` corrupted, falls through         | System crash |
+| **Buffer overflow**      | String copy doesn't check length       | Memory corruption |
+| **Bit rot**              | Constants changed: 60 became 59        | Timing off by 1.6% |
+| **Suspicious changes**   | Code that looks... modified            | Not crash damage? |
 
-### 8.4 Progression with Both Puzzle Types
+### 8.4 Puzzle Progression by Survival Phase
 
-| Layer             | Wire Puzzles                       | Pulse Puzzles                           | Narrative Beat                   |
-| ----------------- | ---------------------------------- | --------------------------------------- | -------------------------------- |
-| **1. Boot**       | Clock divider wrong                | None (can't boot yet)                   | "What is this machine?"          |
-| **2. CPU Core**   | ALU subtract broken, decoder wrong | None (shell won't run)                  | System boots, first logs visible |
-| **3. Shell**      | None                               | `help` command crashes (stack bug)      | Shell works, can explore         |
-| **4. Filesystem** | Memory controller addressing       | `ls` hides dotfiles (intentional?)      | Find hidden `.secret/` directory |
-| **5. I/O**        | Serial TX timing, display driver   | `cat` skips first line                  | Read Dr. Chen's notes            |
-| **6. Storage**    | Disk controller read strobe        | Path parsing bug (`/a/b` fails)         | Access external storage          |
-| **7. Crypto**     | XOR missing, shifter inverted      | Decryption routine has wrong key offset | Decrypt final files              |
-| **8. The Truth**  | None                               | Find and use hidden backdoor command    | The reveal                       |
+| Phase | Wire Puzzles | Pulse Puzzles | Survival Stakes |
+| ----- | ------------ | ------------- | --------------- |
+| **1. IMMEDIATE** | O2 sensor bit slice wrong | CO2 scrubber loop off-by-one | Suffocation in 4 hours |
+| **2. STABILIZE** | Solar panel comparator broken | Battery calc uses wrong register | Power death in 8 hours |
+| **3. UNDERSTAND** | Storage read timing off | Flight log addressing corrupt | Can't read what happened |
+| **4. ORIENT** | Star tracker ADC missing bits | Position calc has wrong constants | Don't know where you are |
+| **5. CONTACT** | Radio encoder XOR missing | Signal parser has bounds error | Can't send or receive |
+| **6. DECIDE** | (All systems restored) | Navigation has... new code? | The choice |
 
-### 8.5 Detailed Puzzle Breakdown
+### 8.5 Detailed Puzzle Breakdown (Survival Phases)
 
-#### Layer 1: Boot (Wire only)
+#### Phase 1: IMMEDIATE - Life Support
 
-**Problem:** System won't POST. Screen shows garbage.
+**Situation:** O2 sensor shows 47% when you know the tank was 94% full at launch. The CO2 scrubber won't activate without valid O2 data. You have 4 hours.
 
-**Wire Bug:** `clock/divider.wire`
+**Wire Bug:** `lifesup/o2_sensor.wire`
 
 ```
-module clock_divider(clk_in) -> clk_out:
-  counter = counter4(clk_in)
-  clk_out = counter[2]  ; BUG: should be counter[3] for correct timing
+module o2_sensor(analog:8, clk) -> level:8:
+  sampled = dff(analog, clk)
+  level = sampled[0:6]  ; DAMAGE: should be [0:7], high bit lost
 ```
 
-**Symptom:** Display refreshes too fast, unreadable.
+**Diagnostics show:** "O2 SENSOR: FAIL - bit 7 stuck low"
 
-**Fix:** Change `counter[2]` to `counter[3]`.
+**The insight:** 47 is roughly half of 94. The sensor reading is being truncated to 7 bits.
 
-**Unlocks:** System boots to self-test.
+**Fix:** Change `sampled[0:6]` to `sampled[0:7]`
 
----
-
-#### Layer 2: CPU Core (Wire only)
-
-**Problem:** ALU self-test fails. System halts.
-
-**Wire Bug #1:** `cpu/alu.wire`
-
-```
-module alu(a:8, b:8, op:3) -> (out:8, zero, carry):
-  sub_result = adder8(a, invert8(b), 0)  ; BUG: carry-in should be 1
-```
-
-**Symptom:** "ALU SELF-TEST FAILED: SUBTRACTION UNIT MALFUNCTION"
-
-**Fix:** Change `adder8(a, invert8(b), 0)` to `adder8(a, invert8(b), 1)`.
-
-**Wire Bug #2:** `cpu/decode.wire`
-
-```
-module decoder(opcode:8) -> (...):
-  is_jmp = eq(opcode, 0x50)  ; BUG: JMP is 0x60, not 0x50
-```
-
-**Symptom:** Programs crash when they try to jump. Self-test hangs.
-
-**Fix:** Change `0x50` to `0x60`.
-
-**Unlocks:** CPU passes self-test, shell starts loading.
-
----
-
-#### Layer 3: Shell (Pulse only)
-
-**Problem:** Typing `help` crashes the system.
-
-**Pulse Bug:** `firmware/shell.pulse`
+**Pulse Bug:** `lifesup/scrubber.pulse`
 
 ```asm
-do_help:
-    LDA #<help_text
-    LDX #>help_text
-    JSR print_string
-    ; BUG: missing RTS, falls through into garbage
+scrub_cycle:
+    LDX #0
+    ; BUG: starts at sensor 1, skipping sensor 0 (primary O2)
+sensor_loop:
+    INX                 ; DAMAGE: should be at end of loop
+    LDA sensors,X
+    JSR process_reading
+    CPX #4
+    BNE sensor_loop
 ```
 
-**Symptom:** "help" causes reboot or garbage output.
+**Symptom:** CO2 scrubber runs but ignores primary O2 sensor.
 
-**Fix:** Add `RTS` after `JSR print_string`.
+**Fix:** Move `INX` to end of loop.
 
-**Narrative:** First working shell. Player can now type `ls`, see filesystem.
-
-**Discovery:** System logs mention "Dr. Chen" and "prototype research".
+**Reward:** Life support stabilizes. O2 estimate: 4+ hours (scrubber working). CO2 scrubber comes online.
 
 ---
 
-#### Layer 4: Filesystem (Wire + Pulse)
+#### Phase 2: STABILIZE - Power Systems
 
-**Problem:** `ls` shows some directories but not all. Something's hidden.
+**Situation:** Running on backup battery. Solar panels should be charging but aren't. Estimated power: 8 hours.
 
-**Pulse Bug (intentional sabotage):** `firmware/filesystem.pulse`
+**Wire Bug:** `power/solar_ctrl.wire`
+
+```
+module solar_controller(light_level:8, threshold:8) -> charge_enable:
+  ; Compare light level to threshold
+  diff = adder8(light_level, invert8(threshold), 0)  ; DAMAGE: carry-in should be 1
+  charge_enable = diff[7]  ; high bit = light > threshold
+```
+
+**Symptom:** Solar charge never enables even in direct sunlight.
+
+**The insight:** Two's complement subtraction requires carry-in of 1.
+
+**Fix:** Change `adder8(..., 0)` to `adder8(..., 1)`
+
+**Pulse Bug:** `power/battery_mon.pulse`
 
 ```asm
-list_dir:
-    ; ... loop through entries ...
-    LDA (entry_ptr),Y    ; first char of filename
-    CMP #'.'
-    JEQ skip_entry       ; BUG: intentionally hiding dotfiles!
-    ; ...
-skip_entry:
-    ; ...
+calc_remaining:
+    LDA battery_voltage
+    STA temp
+    LDA current_draw
+    ; BUG: uses X instead of A for division
+    LDX #0
+    JSR divide         ; divides X/A instead of A/temp
 ```
 
-**Symptom:** `/home/chen/` appears empty, but logs reference files there.
+**Symptom:** Battery estimate wildly wrong (dividing wrong values).
 
-**Clue:** Access log shows "MODIFIED: filesystem.pulse" with recent timestamp.
+**Fix:** Correct the register usage.
 
-**Fix:** Remove or comment out the dotfile check.
+**Reward:** Solar charging resumes. Power estimate: indefinite (with sunlight).
 
-**Discovery:** `.secret/` directory revealed. Contains `readme.txt`: "They're monitoring the main partition. Moved everything here."
-
-**Wire Bug:** `mem/controller.wire` — needed to access extended memory where `.secret/` lives.
-
-```
-module mem_controller(addr:16, ...) -> (...):
-  bank = addr[14:15]
-  offset = addr[0:13]
-  ; BUG: bank bits swapped
-  physical = concat(bank[0], bank[1], offset)  ; should be bank[1], bank[0]
-```
-
-**Symptom:** Reading from `.secret/` returns garbage.
-
-**Fix:** Swap bank bit order.
+**Discovery:** External camera comes online. Shows... a structure on the surface below. Geometric. Not natural.
 
 ---
 
-#### Layer 5: I/O (Wire + Pulse)
+#### Phase 3: UNDERSTAND - Flight Recorder
 
-**Problem:** Can see files in `.secret/`, but `cat` output is wrong.
+**Situation:** You need to know what happened. The flight recorder has 47 entries but you can only read garbage.
 
-**Pulse Bug:** `firmware/shell.pulse`
+**Wire Bug:** `storage/flash_ctrl.wire`
+
+```
+module flash_reader(addr:16, clk) -> (data:8, valid):
+  ; Read timing
+  read_pulse = and(read_enable, clk)
+  ; DAMAGE: data sampled too early, before stable
+  data_latch = dff(flash_data, read_pulse)  ; should be delayed
+```
+
+**Symptom:** "FLASH READ: DATA CHECKSUM FAIL"
+
+**Fix:** Add delay between read pulse and data latch.
+
+**Pulse Bug:** `storage/flight_log.pulse`
 
 ```asm
-cmd_cat:
-    JSR open_file
-    JSR read_byte      ; read first char
-    ; BUG: falls through without printing first byte
-print_loop:
-    JSR print_char
-    JSR read_byte
-    CMP #0
-    JNE print_loop
-    RTS
+read_entry:
+    LDA entry_num
+    ASL             ; multiply by 2 for word address
+    ASL             ; multiply by 2 again (x4)
+    ; DAMAGE: entry size is 64 bytes, not 4
+    ; should multiply by 64 (ASL x6)
+    TAX
+    LDA log_base,X
 ```
 
-**Symptom:** Every file is missing its first character. "ay 47: Something is wrong" instead of "Day 47: Something is wrong".
+**Symptom:** Log entries are scrambled, reading wrong offsets.
 
-**Fix:** Move `JSR print_char` before the loop, or restructure.
+**Fix:** Add more ASL instructions to calculate correct offset (or use proper multiplication).
 
-**Wire Bug:** `io/display.wire` — characters occasionally corrupted.
+**Reward:** Flight recorder readable.
 
+**Discovery - Entry 44:**
 ```
-module display_driver(char:8, x:6, y:5, write, clk) -> (...):
-  ; BUG: latching on wrong clock edge
-  char_reg = register8(char, write, clk)  ; should be not(clk) for setup time
+T+71:02:14 PILOT: "There's that ghost again. Third time."
+NAV: "I'm logging it. Bearing 047, range indeterminate."
+ENG: "Guidance computer accepted an unscheduled correction."
+PILOT: "What? I didn't authorize that."
 ```
 
-**Fix:** Change clock edge.
-
-**Narrative:** Can finally read Dr. Chen's notes clearly.
-
-**Discovery:** Notes reveal growing paranoia. "Day 31: Found access logs I didn't make. Someone else is using the system at night."
+**Discovery - Entry 47 (final):**
+```
+T+72:14:33 PILOT: "Sensor ghost again. It's moving with us."
+NAV: "Adjusting trajectory to compensate for drift."
+ENG: "Guidance computer is... I'm seeing unauthorized writes to nav memory—"
+[END OF LOG]
+```
 
 ---
 
-#### Layer 6: Storage (Wire + Pulse)
+#### Phase 4: ORIENT - Navigation
 
-**Problem:** Notes reference "external research data" but `ls /mnt/storage` fails.
+**Situation:** Where are you? The star tracker is offline. Navigation computer shows impossible coordinates.
 
-**Wire Bug:** `storage/disk.wire`
+**Wire Bug:** `nav/star_tracker.wire`
 
 ```
-module disk_controller(cmd:8, addr:16, clk) -> (data:8, ready):
-  ; BUG: read strobe too short, data not stable
-  read_strobe = and(is_read, clk)  ; needs to hold for 2 cycles
+module star_tracker(sensor:12, threshold:8) -> (star_id:8, valid):
+  ; ADC interface
+  high_bits = sensor[4:11]
+  low_bits = sensor[0:3]
+  ; DAMAGE: bits in wrong order
+  combined = concat(low_bits, high_bits)  ; should be high, low
 ```
 
-**Symptom:** "STORAGE READ ERROR: DATA INVALID"
+**Symptom:** Star tracker identifies wrong stars. Position makes no sense.
 
-**Fix:** Add proper timing/hold circuit.
+**Fix:** Swap concatenation order.
 
-**Pulse Bug:** `firmware/filesystem.pulse`
+**Pulse Bug:** `nav/position.pulse`
 
 ```asm
-parse_path:
-    ; handles "/home" fine
-    ; BUG: doesn't handle multiple slashes correctly
-    LDA path,X
-    CMP #'/'
-    JEQ found_slash
-    INX
-    JMP parse_path
-found_slash:
-    ; stores index but doesn't advance past slash
-    ; next iteration finds same slash again = infinite loop
+calc_position:
+    LDA star_angle
+    ; Apply correction factor
+    ; DAMAGE: constant was modified
+    ADD #23            ; should be #47 (original calibration)
+    STA corrected_angle
 ```
 
-**Symptom:** `ls /mnt/storage/data` hangs.
+**Symptom:** Position calculation off by predictable amount.
 
-**Fix:** Add `INX` after `found_slash` to advance past the slash.
+**Chilling detail:** This doesn't look like crash damage. The constant was precisely changed.
 
-**Discovery:** External storage contains `research_data.enc` and `experiments.log`. The log is readable: details of the project, references to encrypted findings.
+**Reward:** Navigation online. Position calculated.
+
+**Discovery:** You're not where the mission plan says. You're orbiting an uncharted moon of Saturn. The guidance computer brought you here. Deliberately.
+
+The structure on the surface is directly below your orbit. The "sensor ghost" is coming from it.
 
 ---
 
-#### Layer 7: Crypto (Wire + Pulse)
+#### Phase 5: CONTACT - Communications
 
-**Problem:** `research_data.enc` is encrypted. Crypto unit doesn't work.
+**Situation:** You need to radio Earth. Or at least try. The comm system is down.
 
-**Wire Bug #1:** `crypto/xor.wire` — file is empty!
+**Wire Bug:** `comms/encoder.wire`
 
 ```
-; TODO: implement XOR unit
-; - Chen
+module signal_encoder(data:8, key:8) -> encoded:8:
+  ; XOR encoding for error correction
+  ; DAMAGE: XOR gate is missing/empty
+  encoded = data  ; should be: xor8(data, key)
 ```
 
-**Task:** Player must implement XOR from gates.
+**Symptom:** "TRANSMISSION ENCODE FAIL: CHECKSUM INVALID"
+
+**Player task:** Implement XOR8 from basic gates.
 
 ```
 module xor8(a:8, b:8) -> out:8:
-  out = and(or(a, b), nand(a, b))  ; player writes this
+  ; Player must write this
+  out = and8(or8(a, b), nand8(a, b))
 ```
 
-**Wire Bug #2:** `crypto/shift.wire`
-
-```
-module shifter(val:8, left) -> out:8:
-  ; BUG: left/right inverted
-  out = mux(left, shift_right(val), shift_left(val))  ; backwards!
-```
-
-**Fix:** Swap the mux inputs.
-
-**Pulse Bug:** `firmware/crypto.pulse`
+**Pulse Bug:** `comms/signal.pulse`
 
 ```asm
-decrypt:
-    LDA key_offset
-    ADD #1            ; BUG: should be ADD #0, offset already correct
-    STA key_offset    ; key stream is off by one, garbage output
+parse_signal:
+    LDX #0
+parse_loop:
+    LDA buffer,X
+    CMP #$FF         ; end marker
+    JEQ done
+    JSR decode_byte
+    INX
+    CPX #64          ; DAMAGE: buffer is 128 bytes, stops too early
+    JNE parse_loop
 ```
 
-**Symptom:** Decryption produces garbage.
+**Symptom:** Only receives half of incoming signals.
 
-**Fix:** Remove the errant `ADD #1`.
+**Reward:** Radio online.
 
-**Discovery:** Decrypted files reveal what Dr. Chen was working on. The mystery unfolds.
+**Discovery:** There's already a transmission. It's been broadcasting on loop. For a very long time.
+
+It's not in any human language. But the structure is unmistakable: it's instructions. Technical diagrams encoded in the signal. Schematics. For repairing something.
+
+The "sensor ghost" was the signal, probing your computer, learning its architecture. Then it uploaded navigation changes.
+
+**It guided you here.**
 
 ---
 
-#### Layer 8: The Truth (Pulse only)
+#### Phase 6: DECIDE - The Choice
 
-**Problem:** One last encrypted file. Standard decrypt doesn't work. Different key?
+**Situation:** All systems online. The ship could fly. The pilot is still unconscious. You have a decision to make.
 
-**Discovery:** In Chen's notes, a cryptic reference: "Left myself a way back in. The old command still works."
+**The signal:** It's been decoding into clearer instructions. It wants you to descend. To bring your computer. To dock with... something.
 
-**Pulse Investigation:** Player examines shell source, finds:
+**What you find in the code:** Navigation has new subroutines you didn't write. They're not crash damage. They're additions. Elegant ones.
 
 ```asm
-parse_command:
-    ; ... normal commands ...
-
-    ; Hidden backdoor (commented but functional due to assembler quirk)
-    LDA input_buffer
-    CMP #'~'
-    JNE not_backdoor
-    JSR backdoor_handler    ; What's this?
-not_backdoor:
+; This code appeared after the crash
+; It wasn't written by NASA
+nav_override:
+    JSR calc_descent_vector
+    JSR lock_target_structure
+    ; ... more code ...
+    ; ends with: JSR initiate_docking
 ```
 
-**The backdoor:** Typing `~reveal` runs a hidden routine that:
+**Your choices:**
+1. **Ascend** - Try to break orbit. Warn Earth. But the computer might not let you leave.
+2. **Descend** - Follow the signal. See what's been waiting.
+3. **Purge** - Wipe the nav computer. Fly manual. Hope you remember how.
 
-1. Uses a different decryption key
-2. Outputs the final file
+**The revelation:** The "crash" wasn't a malfunction. It was a controlled landing. Something has been waiting in this solar system. It found your radio signals decades ago. It's been patient.
 
-**The Reveal:** The truth about what happened. Why the system was damaged. What Dr. Chen discovered.
-
-(Left intentionally vague — the actual story content is up to you!)
+Now it's teaching you. Preparing you for something.
 
 ---
 
@@ -745,59 +853,61 @@ not_backdoor:
 
 Players aren't left stranded:
 
-| Clue Type             | How It Works                                                |
-| --------------------- | ----------------------------------------------------------- |
-| **Error messages**    | Hardware failures show which module: "ALU SELF-TEST FAILED" |
-| **`diag` command**    | `diag cpu` shows: "ADD: PASS, SUB: FAIL, CMP: PASS"         |
-| **Access logs**       | `/var/log/access.log` shows what was modified and when      |
-| **Comments in code**  | Dr. Chen left notes: `; TODO: fix this later - Chen`        |
-| **Cross-references**  | Notes mention files, files reference hardware               |
-| **Progressive hints** | After N minutes stuck, offer optional hint                  |
+| Clue Type               | How It Works                                                |
+| ----------------------- | ----------------------------------------------------------- |
+| **Status display**      | Shows critical systems: "O2: 47% [!] POWER: BACKUP"         |
+| **`diag` command**      | `diag lifesup` shows: "O2 SENSOR: FAIL - bit 7 stuck low"   |
+| **Schematic comments**  | NASA engineers left notes: `; ADC interface - 8 bit output` |
+| **Flight manual**       | Reference docs explain expected behavior                     |
+| **Progressive hints**   | After N minutes stuck, offer optional hint                   |
+| **The signal**          | Later phases: the alien signal provides cryptic assistance   |
 
-### 8.7 Distinguishing Bugs from Sabotage
+### 8.7 Distinguishing Crash Damage from... Something Else
 
-Part of the mystery is figuring out what's accidental vs. intentional:
+Part of the mystery is figuring out what's impact damage vs. something more sinister:
 
-| Accidental Bugs          | Intentional Sabotage                       |
-| ------------------------ | ------------------------------------------ |
-| Clock divider off-by-one | Dotfile hiding in `ls`                     |
-| Missing carry in ALU     | `cat` skipping first char (hides headers?) |
-| Wrong opcode in decoder  | Backdoor command                           |
-| Timing issues            | Modified access timestamps                 |
+| Crash Damage                  | Suspicious Modifications               |
+| ----------------------------- | -------------------------------------- |
+| Bit slice truncation          | Navigation constants precisely changed |
+| Timing circuits disrupted     | New code subroutines added             |
+| Memory corruption (random)    | Systematic code alterations            |
+| Physical damage (obvious)     | Changes that "help" guide you somewhere|
 
-The player starts thinking "oh, buggy prototype" and gradually realizes "wait, someone did this on purpose."
+The player starts thinking "crash damage" and gradually realizes "something else was here first."
 
 ---
 
-## 9. PC Interface (Browser UI)
+## 9. Diagnostic Terminal Interface (Browser UI)
 
 ### 9.1 Layout
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  [Dead Silicon Recovery Console]                             [?] [⚙]     │
+│  CYGNUS-7 PORTABLE DIAGNOSTIC TERMINAL            [O2: 94%] [PWR: ██████]│
 ├───────────────┬─────────────────────────────────────────────────────┤
-│ FILES         │ EDITOR                                              │
+│ SYSTEMS       │ SCHEMATIC VIEWER                                    │
 │               │                                                     │
-│ ▼ cpu/        │ ┌─ alu.wire ──────────────────────────────────────┐  │
-│   alu.wire ●   │ │                                                │  │
-│   decode.wire  │ │ module alu(a:8, b:8, op:3) -> out:8:           │  │
-│   regs.wire    │ │   add_result = adder8(a, b, 0)                 │  │
-│ ▼ mem/        │ │   sub_result = adder8(a, invert8(b), 1)        │  │
-│   controller.h│ │   and_result = and8(a, b)                      │  │
-│ ▼ io/         │ │   or_result = or8(a, b)                        │  │
-│   display.wire │ │   out = mux8_4(op, add_result, sub_result, ..  │  │
-│   serial.wire  │ │                                                │  │
-│ ▼ stdlib/     │ └────────────────────────────────────────────────┘  │
-│   gates.wire   │                                                     │
-│   adders.wire  │ ┌─ TERMINAL ─────────────────────────────────────┐  │
-│               │ │ $ cat /home/chen/notes/day_01.txt              │  │
-│               │ │ Day 1. The new FPGA prototype arrived today.   │  │
-│               │ │ Performance is incredible. Starting tests.     │  │
-│ [+ New File]  │ │                                                │  │
-│               │ │ $ _                                            │  │
-└───────────────┴─┴────────────────────────────────────────────────┴──┘
-│ [▶ Flash]  [↻ Reboot]  Status: Connected @ 115200                   │
+│ ▼ cpu/        │ ┌─ lifesup/o2_sensor.wire ────────────────────────┐  │
+│   alu.wire    │ │                                                 │  │
+│   decode.wire │ │ ; O2 sensor ADC interface                       │  │
+│ ▼ lifesup/    │ │ module o2_sensor(analog:8, clk) -> level:8:     │  │
+│  o2.wire    ● │ │   sampled = dff(analog, clk)                    │  │
+│  co2.wire     │ │   level = sampled[0:7]  ; fixed!                │  │
+│  scrubber     │ │                                                 │  │
+│ ▼ power/      │ └─────────────────────────────────────────────────┘  │
+│ ▼ nav/        │                                                     │
+│ ▼ comms/      │ ┌─ CONSOLE ───────────────────────────────────────┐  │
+│               │ │ > diag lifesup                                  │  │
+│ ▼ stdlib/     │ │ O2 SENSOR: OK (94%)                             │  │
+│   gates.wire  │ │ CO2 SCRUBBER: ONLINE                            │  │
+│   adders.wire │ │ ATMOSPHERE: NOMINAL                             │  │
+│               │ │                                                 │  │
+│               │ │ > status                                        │  │
+│               │ │ LIFE SUPPORT: OK    NAV: OFFLINE                │  │
+│               │ │ POWER: CHARGING     COMMS: OFFLINE              │  │
+│               │ │ > _                                             │  │
+└───────────────┴─┴─────────────────────────────────────────────────┴──┘
+│ [▶ Flash]  [↻ Reboot]  [⚡ Diag]     Umbilical: CONNECTED           │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -805,12 +915,11 @@ The player starts thinking "oh, buggy prototype" and gradually realizes "wait, s
 
 | Feature          | Description                                         |
 | ---------------- | --------------------------------------------------- |
-| **File tree**    | Browse Wire/Pulse files, see which are modified (●) |
-| **Code editor**  | Syntax highlighting, error underlining              |
-| **Terminal**     | Serial connection to FPGA                           |
-| **Flash button** | Compile and upload current file                     |
-| **Reboot**       | Reset FPGA to test changes                          |
-| **Status bar**   | Connection state, last error                        |
+| **System tree**  | Browse ship's schematics and code by subsystem      |
+| **Visual editor**| Drag-and-drop circuit repair with live simulation   |
+| **Code editor**  | Pulse assembly with syntax highlighting             |
+| **Console**      | Run diagnostics, check status, flash repairs        |
+| **Status bar**   | O2 level, power, connection to ship's computer      |
 
 ### 9.3 Commands (PC side)
 
@@ -921,58 +1030,57 @@ class Game {
 
 ## 11. Content Needed
 
-### 11.1 Wire Files (with bugs)
+### 11.1 Wire Files (Ship Schematics with Damage)
 
-| File                  | Module        | Bug                            | Layer |
-| --------------------- | ------------- | ------------------------------ | ----- |
-| `clock/divider.wire`  | Clock divider | Counter bit wrong              | 1     |
-| `cpu/alu.wire`        | ALU           | Subtraction missing carry      | 2     |
-| `cpu/decode.wire`     | Decoder       | JMP opcode wrong               | 2     |
-| `mem/controller.wire` | Memory        | Bank bits swapped              | 4     |
-| `io/display.wire`     | Display       | Clock edge wrong               | 5     |
-| `storage/disk.wire`   | Disk          | Read strobe timing             | 6     |
-| `crypto/xor.wire`     | XOR unit      | Empty file (player implements) | 7     |
-| `crypto/shift.wire`   | Shifter       | Direction inverted             | 7     |
+| File                        | System        | Damage Type                    | Phase |
+| --------------------------- | ------------- | ------------------------------ | ----- |
+| `lifesup/o2_sensor.wire`    | Life Support  | Bit slice truncated [0:6]      | 1     |
+| `lifesup/co2_ctrl.wire`     | Life Support  | Threshold comparator broken    | 1     |
+| `power/solar_ctrl.wire`     | Power         | Subtraction missing carry      | 2     |
+| `power/battery_mon.wire`    | Power         | ADC timing wrong               | 2     |
+| `storage/flash_ctrl.wire`   | Storage       | Read strobe too short          | 3     |
+| `nav/star_tracker.wire`     | Navigation    | Bit concatenation reversed     | 4     |
+| `comms/encoder.wire`        | Communications| XOR gate missing (player builds)| 5    |
+| `comms/antenna_ctrl.wire`   | Communications| Phase calculation wrong        | 5     |
 
-### 11.2 Pulse Files (with bugs)
+### 11.2 Pulse Files (Flight Software with Corruption)
 
-| File                        | Function        | Bug                           | Layer |
-| --------------------------- | --------------- | ----------------------------- | ----- |
-| `firmware/shell.pulse`      | Help command    | Missing RTS                   | 3     |
-| `firmware/shell.pulse`      | Cat command     | Skips first byte              | 5     |
-| `firmware/filesystem.pulse` | List directory  | Hides dotfiles (intentional)  | 4     |
-| `firmware/filesystem.pulse` | Path parsing    | Infinite loop on nested paths | 6     |
-| `firmware/crypto.pulse`     | Decrypt routine | Key offset wrong              | 7     |
-| `firmware/shell.pulse`      | Backdoor        | Hidden `~reveal` command      | 8     |
+| File                        | Function           | Corruption                      | Phase |
+| --------------------------- | ------------------ | ------------------------------- | ----- |
+| `lifesup/scrubber.pulse`    | CO2 scrubber loop  | INX at wrong position           | 1     |
+| `power/battery.pulse`       | Remaining calc     | Wrong register for division     | 2     |
+| `storage/flight_log.pulse`  | Log entry reader   | Entry size multiplier wrong     | 3     |
+| `nav/position.pulse`        | Position calc      | Constant modified (suspicious)  | 4     |
+| `comms/signal.pulse`        | Signal parser      | Buffer size check too small     | 5     |
+| `nav/guidance.pulse`        | Navigation ctrl    | New code added (alien origin?)  | 6     |
 
-### 11.3 Narrative Files
+### 11.3 Narrative Content (Flight Recorder Entries)
 
-| File                             | Layer | Contents                                                 |
-| -------------------------------- | ----- | -------------------------------------------------------- |
-| `/system/boot.log`               | 2     | Hardware init, timestamps, "Dr. Chen Research Terminal"  |
-| `/var/log/access.log`            | 3     | Access times, shows "filesystem.pulse MODIFIED" recently |
-| `/home/chen/.secret/readme.txt`  | 4     | "Moved everything here. They're watching."               |
-| `/home/chen/notes/day_01.txt`    | 5     | Excitement about new FPGA prototype                      |
-| `/home/chen/notes/day_12.txt`    | 5     | Strange behavior noticed, unexplained reboots            |
-| `/home/chen/notes/day_31.txt`    | 5     | "Found access logs I didn't make"                        |
-| `/home/chen/notes/day_47.txt`    | 5     | Full paranoia, "encrypting everything"                   |
-| `/home/chen/notes/final.txt`     | 6     | Cryptic last entry, hints at backdoor                    |
-| `/mnt/storage/experiments.log`   | 6     | Research details, what they were building                |
-| `/mnt/storage/research_data.enc` | 7     | Encrypted findings                                       |
-| `/mnt/storage/truth.enc`         | 8     | The final reveal (needs backdoor key)                    |
+| Entry | Timestamp   | Content                                                        | Phase |
+| ----- | ----------- | -------------------------------------------------------------- | ----- |
+| 1-40  | T+0 to T+70 | Normal mission logs, routine operations                        | 3     |
+| 41    | T+70:14:22  | "Sensor anomaly detected. Logging for analysis."               | 3     |
+| 42    | T+70:31:07  | "Second anomaly. Same bearing. Moving with us?"                | 3     |
+| 43    | T+71:02:14  | "Ghost again. Guidance computer accepted unscheduled correction"| 3    |
+| 44    | T+71:18:55  | "I didn't authorize that course change."                       | 3     |
+| 45    | T+72:03:41  | "We're not on the planned trajectory anymore."                 | 3     |
+| 46    | T+72:11:12  | "Running full diagnostic on guidance computer."                | 3     |
+| 47    | T+72:14:33  | "I'm seeing unauthorized writes to nav memory—" [ENDS]         | 3     |
 
-### 11.4 Firmware Breakdown
+### 11.4 Flight Software Breakdown
 
-| Component                        | Lines (est.)     | Contains Bugs?              |
+| Component                        | Lines (est.)     | Contains Corruption?        |
 | -------------------------------- | ---------------- | --------------------------- |
-| Boot sequence                    | 50               | No                          |
-| Shell command parser             | 100              | Yes (help crash)            |
-| Commands (ls, cat, status, diag) | 200              | Yes (cat bug, dotfile hide) |
-| Filesystem / path handling       | 100              | Yes (path parsing)          |
+| Boot sequence / self-test        | 50               | No                          |
+| Diagnostic command handler       | 100              | No                          |
+| Life support monitoring          | 80               | Yes (scrubber loop)         |
+| Power management                 | 60               | Yes (battery calc)          |
+| Storage / flight recorder        | 100              | Yes (entry offset)          |
+| Navigation / position            | 120              | Yes (suspicious constant)   |
+| Communications / radio           | 80               | Yes (buffer bounds)         |
+| Guidance control                 | 100              | Yes (alien additions)       |
 | Print/string utilities           | 50               | No                          |
-| Crypto routines                  | 80               | Yes (key offset)            |
-| Backdoor handler                 | 30               | Feature, not bug            |
-| **Total**                        | ~610 lines Pulse |                             |
+| **Total**                        | ~740 lines Pulse |                             |
 
 ---
 
@@ -1029,32 +1137,39 @@ class Game {
 
 ## 13. The Pitch to Judges
 
+**The concept:**
+
+> *1973. Your Apollo-era spacecraft has crash-landed on an uncharted moon. The guidance computer is damaged. You're the systems engineer. Fix the circuits. Patch the code. Survive. And figure out why something brought you here.*
+
 **Languages we created:**
 
-1. **Wire** — A hardware description language for defining digital circuits
-2. **Pulse** — An assembly language for the CPU we designed in Wire
+1. **Wire** — A hardware description language for defining digital circuits. Players repair damaged circuits by editing Wire schematics.
+2. **Pulse** — An assembly language for the ship's CPU. Players patch corrupted flight software by fixing Pulse code.
 
-**What we built with them:**
+**Why 1970s space tech?**
 
-- A complete CPU architecture, defined in Wire
-- A working firmware (boot sequence, shell, filesystem, crypto), written in Pulse
-- A mystery game where you fix corrupted hardware AND buggy firmware to uncover secrets
+- **Authentically simple**: Apollo-era computers were ~4,000 gates. You can understand every transistor.
+- **Life-or-death stakes**: You're not debugging — you're surviving. O2 is running out.
+- **Real engineering**: Apollo astronauts actually had to understand their systems at this level.
+- **Perfect for the jam**: Simple enough to implement, complex enough to be interesting.
 
 **The technical achievement:**
 
-Every gate in the FPGA is simulated. The CPU is defined in Wire. The firmware is assembled from Pulse. When you type a command in the terminal, it travels through our serial port implementation, into our CPU, through our instruction decoder, and executes on our ALU — all defined in Wire, all running code we wrote in Pulse.
+The spacecraft's entire computer is simulated at the gate level. Every circuit is defined in Wire. The flight software is assembled from Pulse. When you run `diag lifesup`, that command travels through our serial port, into our CPU, through our instruction decoder, reads from our sensor interfaces — all defined in Wire, running code written in Pulse.
 
-**Both languages are gameplay:**
+**Both languages are survival:**
 
-- Wire puzzles: Fix circuits to get hardware working
-- Pulse puzzles: Fix code to get software working
-- Some bugs are accidents. Some are sabotage. Figuring out which is part of the mystery.
+- **Wire puzzles**: Repair the O2 sensor circuit. Fix the solar panel controller. Get the radio encoder working.
+- **Pulse puzzles**: Debug the scrubber loop. Fix the flight recorder offset. Patch the signal parser.
+- **The mystery**: Some damage is from the crash. Some damage... isn't. Something guided you here.
 
 **The game:**
 
-It's not just a tech demo. There's a mystery. Someone was here before you. The system is damaged — both the hardware and the software. Some damage looks deliberate. What were they hiding? What happened to them? Fix the circuits, fix the code, find the truth.
+It's not just a tech demo. There's a mystery wrapped in a survival story. You crashed on a moon that was supposed to be barren. There's a structure on the surface. A signal that's been broadcasting for millennia. And your guidance computer has code in it that you didn't write.
+
+Fix the hardware. Fix the software. Survive long enough to make a choice.
 
 ---
 
-_Document version: 2.0_
+_Document version: 3.0_
 _Last updated: December 2025_

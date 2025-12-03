@@ -43,9 +43,19 @@
       "Bash(gh auth:*)",
       "Bash(gh repo create:*)",
       "Bash(npx tailwindcss:*)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "WebSearch",
+      "Bash(npx tsc:*)",
+      "Bash(python test-visual-editor.py:*)",
+      "Bash(python3:*)",
+      "Bash(npx playwright test --headed=false -g \"visual\")",
+      "Bash(npx playwright:*)"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "jira"
+  ]
 }

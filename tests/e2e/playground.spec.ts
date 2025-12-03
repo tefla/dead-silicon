@@ -1,8 +1,16 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
+
+// Helper to navigate to Playground view
+async function goToPlayground(page: Page) {
+  await page.goto('/')
+  // App defaults to Visual Editor, click Playground tab
+  await page.click('button:has-text("Playground")')
+  await page.waitForTimeout(300)
+}
 
 test.describe('Playground UI', () => {
   test.skip('loads the playground interface', async ({ page }) => {
-    await page.goto('/')
+    await goToPlayground(page)
 
     // Wait for main app container to be present
     await page.waitForSelector('#app > div')
@@ -14,7 +22,7 @@ test.describe('Playground UI', () => {
   })
 
   test('displays side quests in file browser', async ({ page }) => {
-    await page.goto('/')
+    await goToPlayground(page)
 
     // Check all side quests are listed (exact titles from side-quests.ts)
     await expect(page.getByText('Blinking LED')).toBeVisible()
@@ -23,7 +31,7 @@ test.describe('Playground UI', () => {
   })
 
   test('loads a file when clicked', async ({ page }) => {
-    await page.goto('/')
+    await goToPlayground(page)
 
     // Click on blinker file
     await page.getByText('blinker.wire').first().click()
@@ -41,7 +49,7 @@ test.describe('Playground UI', () => {
   })
 
   test('displays simulation controls', async ({ page }) => {
-    await page.goto('/')
+    await goToPlayground(page)
     await page.getByText('blinker.wire').click()
     await page.waitForTimeout(500)
 
@@ -56,14 +64,14 @@ test.describe('Playground UI', () => {
   })
 
   test('shows no file selected message initially', async ({ page }) => {
-    await page.goto('/')
+    await goToPlayground(page)
 
     await expect(page.getByText('No file selected')).toBeVisible()
     await expect(page.getByText('Select a file to begin simulation')).toBeVisible()
   })
 
   test('switches between different files', async ({ page }) => {
-    await page.goto('/')
+    await goToPlayground(page)
 
     // Load blinker
     await page.getByText('blinker.wire').first().click()
@@ -85,7 +93,7 @@ test.describe('Playground UI', () => {
 
 test.describe('Simulation Functionality', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/')
+    await goToPlayground(page)
     await page.getByText('blinker.wire').first().click()
     await page.waitForTimeout(1500)
   })
@@ -214,7 +222,7 @@ test.describe('Simulation Functionality', () => {
 
   test('compile error is displayed for invalid code', async ({ page }) => {
     // Load a file and modify it to be invalid
-    await page.goto('/')
+    await goToPlayground(page)
     await page.getByText('blinker.wire').click()
     await page.waitForTimeout(1500)
 
@@ -243,7 +251,7 @@ test.describe('Simulation Functionality', () => {
 
 test.describe('Monaco Editor', () => {
   test('monaco editor loads with syntax highlighting', async ({ page }) => {
-    await page.goto('/')
+    await goToPlayground(page)
     await page.getByText('blinker.wire').click()
     await page.waitForTimeout(1500)
 
@@ -257,7 +265,7 @@ test.describe('Monaco Editor', () => {
   })
 
   test('editor shows correct file extension badge', async ({ page }) => {
-    await page.goto('/')
+    await goToPlayground(page)
 
     // Load Wire file
     await page.getByText('blinker.wire').click()
