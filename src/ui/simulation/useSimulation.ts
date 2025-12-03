@@ -6,6 +6,14 @@ import { createSimulator, Simulator } from '../../wire/simulator'
 import type { WaveformSnapshot } from './types'
 import { MAX_WAVEFORM_CYCLES } from './types'
 
+// Import Wire stdlib modules
+import gatesWire from '../../assets/wire/gates.wire?raw'
+import arithmeticWire from '../../assets/wire/arithmetic.wire?raw'
+import registersWire from '../../assets/wire/registers.wire?raw'
+
+// Combined stdlib to prepend to user code
+const WIRE_STDLIB = gatesWire + '\n' + arithmeticWire + '\n' + registersWire + '\n'
+
 export function useSimulation() {
   const {
     activeLanguage,
@@ -32,7 +40,9 @@ export function useSimulation() {
     }
 
     // Try to compile and create simulator
-    const result = createSimulator(editorValue)
+    // Prepend stdlib to user code so modules like not, and, adder4, etc. are available
+    const sourceWithStdlib = WIRE_STDLIB + editorValue
+    const result = createSimulator(sourceWithStdlib)
     if (result.ok) {
       simulatorRef.current = result.simulator
       clockStateRef.current = 0
