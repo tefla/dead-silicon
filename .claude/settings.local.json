@@ -39,7 +39,11 @@
       "Bash(git commit:*)",
       "Bash(npx vitest:*)",
       "Bash(node --import tsx:*)",
-      "Bash(npx vite-node:*)"
+      "Bash(npx vite-node:*)",
+      "Bash(gh auth:*)",
+      "Bash(gh repo create:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(npm run dev:*)"
     ],
     "deny": [],
     "ask": []

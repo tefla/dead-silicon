@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --vscode-bg: #1e1e1e;
+  --vscode-sidebar: #252526;
+  --vscode-editor: #1e1e1e;
+  --vscode-panel: #181818;
+  --vscode-border: #3e3e42;
+  --vscode-text: #cccccc;
+  --vscode-muted: #969696;
+  --vscode-accent: #007acc;
+}
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: var(--vscode-bg);
+  color: var(--vscode-text);
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.panel {
+  background: var(--vscode-sidebar);
+  border: 1px solid var(--vscode-border);
+}
+
+.editor-container {
+  background: var(--vscode-editor);
+}
+
+.waveform {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: pre;
+}
