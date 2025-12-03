@@ -1,0 +1,230 @@
+; Dead Silicon Boot Sequence
+; Minimal boot loader that initializes system and runs shell
+; Uses only: immediate, absolute, implied, relative addressing modes
+
+.org $FF00
+
+; Reset vector entry point
+reset:
+    ; Initialize stack pointer
+    LDX #$FF
+    TXS
+
+    ; Print boot banner
+    JSR print_boot_msg
+
+    ; Hardware self-test
+    JSR test_alu
+    BNE boot_fail
+
+    ; Boot success message
+    JSR print_ok_msg
+
+    ; Jump to shell
+    JMP shell_main
+
+boot_fail:
+    JSR print_fail_msg
+    BRK  ; Halt
+
+; Print boot message (unrolled string printing)
+print_boot_msg:
+    LDA #68  ; 'D'
+    JSR print_char
+    LDA #69  ; 'E'
+    JSR print_char
+    LDA #65  ; 'A'
+    JSR print_char
+    LDA #68  ; 'D'
+    JSR print_char
+    LDA #32  ; ' '
+    JSR print_char
+    LDA #83  ; 'S'
+    JSR print_char
+    LDA #73  ; 'I'
+    JSR print_char
+    LDA #76  ; 'L'
+    JSR print_char
+    LDA #73  ; 'I'
+    JSR print_char
+    LDA #67  ; 'C'
+    JSR print_char
+    LDA #79  ; 'O'
+    JSR print_char
+    LDA #78  ; 'N'
+    JSR print_char
+    LDA #32  ; ' '
+    JSR print_char
+    LDA #118  ; 'v'
+    JSR print_char
+    LDA #48  ; '0'
+    JSR print_char
+    LDA #46  ; '.'
+    JSR print_char
+    LDA #49  ; '1'
+    JSR print_char
+    LDA #10  ; newline
+    JSR print_char
+    RTS
+
+print_ok_msg:
+    LDA #79  ; 'O'
+    JSR print_char
+    LDA #75  ; 'K'
+    JSR print_char
+    LDA #10
+    JSR print_char
+    LDA #10
+    JSR print_char
+    RTS
+
+print_fail_msg:
+    LDA #70  ; 'F'
+    JSR print_char
+    LDA #65  ; 'A'
+    JSR print_char
+    LDA #73  ; 'I'
+    JSR print_char
+    LDA #76  ; 'L'
+    JSR print_char
+    LDA #10
+    JSR print_char
+    RTS
+
+; Print character in A to serial
+print_char:
+    STA $F001  ; SERIAL_TX
+    RTS
+
+; Simple ALU test - verify ADD works
+; Returns: Z=0 if pass, Z=1 if fail
+test_alu:
+    CLC
+    LDA #5
+    ADC #3
+    CMP #8
+    BEQ alu_pass
+    LDA #1  ; Non-zero = fail
+    RTS
+alu_pass:
+    LDA #0  ; Zero = pass
+    RTS
+
+; Shell entry point
+shell_main:
+    ; Print prompt "$ "
+    LDA #36  ; '$'
+    JSR print_char
+    LDA #32  ; ' '
+    JSR print_char
+
+    ; Read command into buffer
+    JSR read_command
+
+    ; Handle the command
+    JSR handle_command
+
+    ; Loop
+    JMP shell_main
+
+; Read command from serial - just read first character
+; Store it at $0200, then wait for newline
+read_command:
+    ; Wait for input
+wait_char:
+    LDA $F002  ; SERIAL_STATUS
+    BEQ wait_char
+
+    ; Read character
+    LDA $F000  ; SERIAL_RX
+
+    ; Store first character
+    STA $0200
+
+    ; Echo it
+    JSR print_char
+
+    ; Now wait for newline (consume rest of line)
+wait_newline:
+    LDA $F002  ; SERIAL_STATUS
+    BEQ wait_newline
+
+    LDA $F000  ; SERIAL_RX
+
+    ; Check for newline
+    CMP #10
+    BEQ got_newline
+    CMP #13
+    BEQ got_newline
+
+    ; Echo character (not stored, just echo)
+    JSR print_char
+    JMP wait_newline
+
+got_newline:
+    ; Print newline
+    LDA #10
+    JSR print_char
+
+    RTS
+
+; Handle command - first character is at $0200
+handle_command:
+    ; Check first character
+    LDA $0200
+    BEQ cmd_empty
+
+    CMP #104  ; 'h'
+    BEQ cmd_help
+    CMP #115  ; 's'
+    BEQ cmd_status
+
+unknown_cmd:
+    LDA #63  ; '?'
+    JSR print_char
+    LDA #10
+    JSR print_char
+cmd_empty:
+    RTS
+
+cmd_help:
+    LDA #104  ; 'h'
+    JSR print_char
+    LDA #101  ; 'e'
+    JSR print_char
+    LDA #108  ; 'l'
+    JSR print_char
+    LDA #112  ; 'p'
+    JSR print_char
+    LDA #44  ; ','
+    JSR print_char
+    LDA #32  ; ' '
+    JSR print_char
+    LDA #115  ; 's'
+    JSR print_char
+    LDA #116  ; 't'
+    JSR print_char
+    LDA #97  ; 'a'
+    JSR print_char
+    LDA #116  ; 't'
+    JSR print_char
+    LDA #117  ; 'u'
+    JSR print_char
+    LDA #115  ; 's'
+    JSR print_char
+    LDA #10
+    JSR print_char
+    RTS
+
+cmd_status:
+    LDA #79  ; 'O'
+    JSR print_char
+    LDA #75  ; 'K'
+    JSR print_char
+    LDA #10
+    JSR print_char
+    RTS
+
+; Reset vector
+.org $FFFC
+.word reset
