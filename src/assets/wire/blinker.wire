@@ -2,4 +2,6 @@
 ; Good for testing, demonstrates basic sequential logic
 
 module simple_blinker(clk) -> led:
-  led = dff(not(led), clk)
+  ; Use nand(x, x) to implement NOT
+  inverted = nand(led, led)
+  led = dff(inverted, clk)
