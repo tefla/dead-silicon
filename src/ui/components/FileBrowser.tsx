@@ -5,13 +5,13 @@ import { FileCode } from 'lucide-react'
 // Import example files
 import blinkerWire from '../../assets/wire/blinker.wire?raw'
 import counterWire from '../../assets/wire/counter.wire?raw'
-import aluWire from '../../assets/wire/alu.wire?raw'
+import aluTestWire from '../../assets/wire/alu_test.wire?raw'
 import ledDemoPulse from '../../assets/pulse/led_demo.pulse?raw'
 
 const fileContents: Record<string, string> = {
   'blinker.wire': blinkerWire,
   'counter.wire': counterWire,
-  'alu.wire': aluWire,
+  'alu_test.wire': aluTestWire,
   'led_demo.pulse': ledDemoPulse,
 }
 

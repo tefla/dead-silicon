@@ -34,7 +34,7 @@ export const sideQuests: SideQuest[] = [
     title: 'Simple ALU',
     difficulty: 'Intermediate',
     files: {
-      wire: 'alu.wire',
+      wire: 'alu_test.wire',
     },
     description: 'Build an ALU that can ADD, SUB, AND, OR, XOR',
   },
