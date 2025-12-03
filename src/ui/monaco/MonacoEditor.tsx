@@ -1,5 +1,5 @@
-import { Editor, OnMount } from '@monaco-editor/react'
-import { useEffect, useRef } from 'react'
+import { Editor } from '@monaco-editor/react'
+import { useRef } from 'react'
 import * as monaco from 'monaco-editor'
 import { registerWireLanguage } from './wire-language'
 import { registerPulseLanguage } from './pulse-language'
@@ -15,7 +15,7 @@ export function MonacoEditor({ value, language, onChange }: MonacoEditorProps) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const registeredRef = useRef(false)
 
-  const handleEditorMount: OnMount = (editor) => {
+  const handleEditorMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
     editorRef.current = editor
 
     // Register languages and theme once
