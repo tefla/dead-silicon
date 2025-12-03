@@ -49,7 +49,9 @@
       "Bash(python test-visual-editor.py:*)",
       "Bash(python3:*)",
       "Bash(npx playwright test --headed=false -g \"visual\")",
-      "Bash(npx playwright:*)"
+      "Bash(npx playwright:*)",
+      "Bash(git checkout:*)",
+      "Bash(git rebase:*)"
     ],
     "deny": [],
     "ask": []

@@ -76,15 +76,18 @@ export function useSimulation() {
         // Step simulation
         simulator.step()
 
-        // Capture waveform snapshot on rising edge
+        // Capture waveform snapshot on BOTH clock edges
+        // This allows us to see the clock toggling in the waveform display
+        const values = simulator.getAllWires()
+        const snapshot: WaveformSnapshot = {
+          cycle: currentCycle,
+          signals: new Map(values),
+        }
+        addWaveformSnapshot(snapshot)
+        setWireValues(values)
+
+        // Only increment cycle counter on rising edge (one full cycle = low + high)
         if (clockStateRef.current === 1) {
-          const values = simulator.getAllWires()
-          const snapshot: WaveformSnapshot = {
-            cycle: currentCycle,
-            signals: new Map(values),
-          }
-          addWaveformSnapshot(snapshot)
-          setWireValues(values)
           setCurrentCycle(currentCycle + 1)
         }
       }
@@ -102,29 +105,33 @@ export function useSimulation() {
     }
   }, [isRunning, activeLanguage, speed, currentCycle, setCurrentCycle, setWireValues, addWaveformSnapshot])
 
-  // Step function (single clock cycle)
+  // Step function (single clock cycle = low + high)
   const step = () => {
     if (activeLanguage !== 'wire' || !simulatorRef.current) return
 
     const simulator = simulatorRef.current
 
-    // Toggle clock low
+    // Toggle clock low and capture
     clockStateRef.current = 0
     simulator.setInput('clk', 0)
     simulator.step()
 
-    // Toggle clock high
+    let values = simulator.getAllWires()
+    addWaveformSnapshot({
+      cycle: currentCycle,
+      signals: new Map(values),
+    })
+
+    // Toggle clock high and capture
     clockStateRef.current = 1
     simulator.setInput('clk', 1)
     simulator.step()
 
-    // Capture state
-    const values = simulator.getAllWires()
-    const snapshot: WaveformSnapshot = {
+    values = simulator.getAllWires()
+    addWaveformSnapshot({
       cycle: currentCycle,
       signals: new Map(values),
-    }
-    addWaveformSnapshot(snapshot)
+    })
     setWireValues(values)
     setCurrentCycle(currentCycle + 1)
   }
