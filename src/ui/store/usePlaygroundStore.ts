@@ -18,6 +18,10 @@ interface PlaygroundStore {
   wireValues: Map<string, number>
   waveformHistory: WaveformSnapshot[]
 
+  // Terminal state (for Pulse CPU)
+  terminalOutput: string
+  terminalInputQueue: string[]
+
   // Actions
   setActiveFile: (filename: string, language: 'wire' | 'pulse', content: string) => void
   updateEditorValue: (value: string) => void
@@ -30,6 +34,10 @@ interface PlaygroundStore {
   addWaveformSnapshot: (snapshot: WaveformSnapshot) => void
   clearWaveform: () => void
   setSimulationError: (error: string | null) => void
+  appendTerminalOutput: (text: string) => void
+  clearTerminal: () => void
+  sendInput: (text: string) => void
+  clearInputQueue: () => void
 }
 
 export const usePlaygroundStore = create<PlaygroundStore>((set) => ({
@@ -43,6 +51,8 @@ export const usePlaygroundStore = create<PlaygroundStore>((set) => ({
   simulationError: null,
   wireValues: new Map(),
   waveformHistory: [],
+  terminalOutput: '',
+  terminalInputQueue: [],
 
   // Actions
   setActiveFile: (filename, language, content) =>
@@ -92,4 +102,18 @@ export const usePlaygroundStore = create<PlaygroundStore>((set) => ({
 
   setSimulationError: (error) =>
     set({ simulationError: error }),
+
+  appendTerminalOutput: (text) =>
+    set((state) => ({ terminalOutput: state.terminalOutput + text })),
+
+  clearTerminal: () =>
+    set({ terminalOutput: '', terminalInputQueue: [] }),
+
+  sendInput: (text) =>
+    set((state) => ({
+      terminalInputQueue: [...state.terminalInputQueue, ...text.split('')],
+    })),
+
+  clearInputQueue: () =>
+    set({ terminalInputQueue: [] }),
 }))

@@ -38,4 +38,13 @@ export const sideQuests: SideQuest[] = [
     },
     description: 'Build an ALU that can ADD, SUB, AND, OR, XOR',
   },
+  {
+    id: 'boot',
+    title: 'Boot Sequence',
+    difficulty: 'Advanced',
+    files: {
+      pulse: 'boot.pulse',
+    },
+    description: 'FPGA boot firmware with shell - press Run to boot!',
+  },
 ]

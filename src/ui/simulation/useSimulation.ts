@@ -1,8 +1,11 @@
-// Simulation hook with RAF loop for Wire circuits
+// Simulation hook with RAF loop for Wire circuits and Pulse CPU
 
 import { useEffect, useRef } from 'react'
 import { usePlaygroundStore } from '../store/usePlaygroundStore'
 import { createSimulator, Simulator } from '../../wire/simulator'
+import { assemble } from '../../pulse/assembler'
+import { CPU, SimpleIO } from '../../fpga/cpu'
+import { createMemory } from '../../fpga/memory'
 import type { WaveformSnapshot } from './types'
 import { MAX_WAVEFORM_CYCLES } from './types'
 
@@ -26,9 +29,15 @@ export function useSimulation() {
     addWaveformSnapshot,
     clearWaveform,
     setSimulationError,
+    appendTerminalOutput,
+    clearTerminal,
+    terminalInputQueue,
+    clearInputQueue,
   } = usePlaygroundStore()
 
   const simulatorRef = useRef<Simulator | null>(null)
+  const cpuRef = useRef<CPU | null>(null)
+  const ioRef = useRef<SimpleIO | null>(null)
   const rafIdRef = useRef<number | null>(null)
   const clockStateRef = useRef(0)
 
@@ -62,9 +71,59 @@ export function useSimulation() {
     }
   }, [editorValue, activeLanguage, setWireValues, clearWaveform, setSimulationError])
 
-  // RAF animation loop
+  // Initialize Pulse CPU when editor value changes
   useEffect(() => {
-    if (!isRunning || activeLanguage !== 'wire' || !simulatorRef.current) {
+    if (activeLanguage !== 'pulse') {
+      cpuRef.current = null
+      ioRef.current = null
+      return
+    }
+
+    // Try to assemble and create CPU
+    const result = assemble(editorValue)
+    if (result.ok) {
+      const memory = createMemory()
+      const io = new SimpleIO()
+
+      // Load program into memory
+      for (let i = 0; i < result.program.binary.length; i++) {
+        memory[result.program.origin + i] = result.program.binary[i]
+      }
+
+      const cpu = new CPU(memory, io)
+      cpu.reset()
+
+      cpuRef.current = cpu
+      ioRef.current = io
+      setSimulationError(null)
+      clearTerminal()
+
+      // Print initial boot message (CPU should output this as it runs)
+    } else {
+      cpuRef.current = null
+      ioRef.current = null
+      setSimulationError(result.error.message)
+    }
+  }, [editorValue, activeLanguage, setSimulationError, clearTerminal])
+
+  // Handle terminal input queue for Pulse CPU
+  useEffect(() => {
+    if (activeLanguage !== 'pulse' || !ioRef.current || terminalInputQueue.length === 0) {
+      return
+    }
+
+    const io = ioRef.current
+    // Push all queued input to CPU serial RX
+    for (const char of terminalInputQueue) {
+      io.serialIn.push(char.charCodeAt(0))
+    }
+    // Clear the queue after processing
+    clearInputQueue()
+  }, [activeLanguage, terminalInputQueue, clearInputQueue])
+
+  // RAF animation loop (for both Wire and Pulse)
+  useEffect(() => {
+    if (!isRunning) {
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current)
         rafIdRef.current = null
@@ -72,33 +131,45 @@ export function useSimulation() {
       return
     }
 
-    const simulator = simulatorRef.current
-
     const animate = () => {
-      // Execute multiple steps per frame based on speed
-      const stepsPerFrame = Math.max(1, Math.floor(speed / 10))
+      if (activeLanguage === 'wire' && simulatorRef.current) {
+        // Wire simulation
+        const simulator = simulatorRef.current
+        const stepsPerFrame = Math.max(1, Math.floor(speed / 10))
 
-      for (let i = 0; i < stepsPerFrame; i++) {
-        // Toggle clock
-        clockStateRef.current = clockStateRef.current === 0 ? 1 : 0
-        simulator.setInput('clk', clockStateRef.current)
+        for (let i = 0; i < stepsPerFrame; i++) {
+          clockStateRef.current = clockStateRef.current === 0 ? 1 : 0
+          simulator.setInput('clk', clockStateRef.current)
+          simulator.step()
 
-        // Step simulation
-        simulator.step()
+          const values = simulator.getAllWires()
+          addWaveformSnapshot({
+            cycle: currentCycle,
+            signals: new Map(values),
+          })
+          setWireValues(values)
 
-        // Capture waveform snapshot on BOTH clock edges
-        // This allows us to see the clock toggling in the waveform display
-        const values = simulator.getAllWires()
-        const snapshot: WaveformSnapshot = {
-          cycle: currentCycle,
-          signals: new Map(values),
+          if (clockStateRef.current === 1) {
+            setCurrentCycle(currentCycle + 1)
+          }
         }
-        addWaveformSnapshot(snapshot)
-        setWireValues(values)
+      } else if (activeLanguage === 'pulse' && cpuRef.current && ioRef.current) {
+        // Pulse CPU simulation
+        const cpu = cpuRef.current
+        const io = ioRef.current
+        const stepsPerFrame = Math.max(1, Math.floor(speed / 2))
 
-        // Only increment cycle counter on rising edge (one full cycle = low + high)
-        if (clockStateRef.current === 1) {
-          setCurrentCycle(currentCycle + 1)
+        for (let i = 0; i < stepsPerFrame; i++) {
+          if (!cpu.state.halted) {
+            cpu.step()
+            setCurrentCycle(cpu.state.cycles)
+
+            // Check for serial output
+            while (io.serialOut.length > 0) {
+              const char = io.serialOut.shift()!
+              appendTerminalOutput(String.fromCharCode(char))
+            }
+          }
         }
       }
 
@@ -113,53 +184,76 @@ export function useSimulation() {
         rafIdRef.current = null
       }
     }
-  }, [isRunning, activeLanguage, speed, currentCycle, setCurrentCycle, setWireValues, addWaveformSnapshot])
+  }, [isRunning, activeLanguage, speed, currentCycle, setCurrentCycle, setWireValues, addWaveformSnapshot, appendTerminalOutput])
 
-  // Step function (single clock cycle = low + high)
+  // Step function (single step)
   const step = () => {
-    if (activeLanguage !== 'wire' || !simulatorRef.current) return
+    if (activeLanguage === 'wire' && simulatorRef.current) {
+      const simulator = simulatorRef.current
 
-    const simulator = simulatorRef.current
+      // Toggle clock low and capture
+      clockStateRef.current = 0
+      simulator.setInput('clk', 0)
+      simulator.step()
 
-    // Toggle clock low and capture
-    clockStateRef.current = 0
-    simulator.setInput('clk', 0)
-    simulator.step()
+      let values = simulator.getAllWires()
+      addWaveformSnapshot({
+        cycle: currentCycle,
+        signals: new Map(values),
+      })
 
-    let values = simulator.getAllWires()
-    addWaveformSnapshot({
-      cycle: currentCycle,
-      signals: new Map(values),
-    })
+      // Toggle clock high and capture
+      clockStateRef.current = 1
+      simulator.setInput('clk', 1)
+      simulator.step()
 
-    // Toggle clock high and capture
-    clockStateRef.current = 1
-    simulator.setInput('clk', 1)
-    simulator.step()
+      values = simulator.getAllWires()
+      addWaveformSnapshot({
+        cycle: currentCycle,
+        signals: new Map(values),
+      })
+      setWireValues(values)
+      setCurrentCycle(currentCycle + 1)
+    } else if (activeLanguage === 'pulse' && cpuRef.current && ioRef.current) {
+      const cpu = cpuRef.current
+      const io = ioRef.current
 
-    values = simulator.getAllWires()
-    addWaveformSnapshot({
-      cycle: currentCycle,
-      signals: new Map(values),
-    })
-    setWireValues(values)
-    setCurrentCycle(currentCycle + 1)
+      if (!cpu.state.halted) {
+        cpu.step()
+        setCurrentCycle(cpu.state.cycles)
+
+        // Check for serial output
+        while (io.serialOut.length > 0) {
+          const char = io.serialOut.shift()!
+          appendTerminalOutput(String.fromCharCode(char))
+        }
+      }
+    }
   }
 
   // Reset function
   const reset = () => {
-    if (activeLanguage !== 'wire' || !simulatorRef.current) return
+    if (activeLanguage === 'wire' && simulatorRef.current) {
+      const simulator = simulatorRef.current
+      simulator.reset()
+      clockStateRef.current = 0
+      simulator.setInput('clk', 0)
+      simulator.step()
 
-    const simulator = simulatorRef.current
-    simulator.reset()
-    clockStateRef.current = 0
-    simulator.setInput('clk', 0)
-    simulator.step()
+      const values = simulator.getAllWires()
+      setWireValues(values)
+      setCurrentCycle(0)
+      clearWaveform()
+    } else if (activeLanguage === 'pulse' && cpuRef.current && ioRef.current) {
+      const cpu = cpuRef.current
+      const io = ioRef.current
 
-    const values = simulator.getAllWires()
-    setWireValues(values)
-    setCurrentCycle(0)
-    clearWaveform()
+      cpu.reset()
+      io.serialOut = []
+      io.serialIn = []
+      setCurrentCycle(0)
+      clearTerminal()
+    }
   }
 
   return {

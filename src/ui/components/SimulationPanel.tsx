@@ -3,6 +3,7 @@ import { usePlaygroundStore } from '../store/usePlaygroundStore'
 import { useSimulation } from '../simulation/useSimulation'
 import { WaveformDisplay } from './WaveformDisplay'
 import { LEDDisplay } from './LEDDisplay'
+import { Terminal } from './Terminal'
 
 export function SimulationPanel() {
   const {
@@ -103,17 +104,21 @@ export function SimulationPanel() {
         )}
       </div>
 
-      {/* Waveform Display */}
-      <div className="flex-1 p-4 overflow-auto">
+      {/* Display Area */}
+      <div className="flex-1 overflow-auto">
         {activeLanguage === 'wire' && (
-          <>
+          <div className="p-4">
             <WaveformDisplay />
             <LEDDisplay />
-          </>
+          </div>
+        )}
+
+        {activeLanguage === 'pulse' && (
+          <Terminal />
         )}
 
         {!activeLanguage && (
-          <div className="text-center text-vscode-muted text-sm mt-8">
+          <div className="text-center text-vscode-muted text-sm mt-8 p-4">
             Select a file to begin simulation
           </div>
         )}
