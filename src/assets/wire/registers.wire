@@ -25,6 +25,14 @@ module register8(d:8, en, clk) -> q:8:
 module dff_simple(d, clk) -> q:
   q = dff(d, clk)
 
+; 4-bit D flip-flop (always captures)
+module dff4(d:4, clk) -> q:4:
+  q0 = dff(d[0], clk)
+  q1 = dff(d[1], clk)
+  q2 = dff(d[2], clk)
+  q3 = dff(d[3], clk)
+  q = concat(q3, q2, q1, q0)
+
 ; 8-bit D flip-flop (always captures)
 module dff8(d:8, clk) -> q:8:
   q0 = dff(d[0], clk)

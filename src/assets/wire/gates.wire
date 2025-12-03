@@ -40,6 +40,14 @@ module mux(a, b, sel) -> out:
   t1 = and(b, sel)
   out = or(t0, t1)
 
+; 4-bit 2-to-1 multiplexer - sel=0 selects a, sel=1 selects b
+module mux4(sel, a:4, b:4) -> out:4:
+  out0 = mux(a[0], b[0], sel)
+  out1 = mux(a[1], b[1], sel)
+  out2 = mux(a[2], b[2], sel)
+  out3 = mux(a[3], b[3], sel)
+  out = concat(out3, out2, out1, out0)
+
 ; 3-input AND gate
 module and3(a, b, c) -> out:
   ab = and(a, b)
