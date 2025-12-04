@@ -12,8 +12,10 @@ const arithmeticWire = readFileSync(resolve(__dirname, '../assets/wire/arithmeti
 const registersWire = readFileSync(resolve(__dirname, '../assets/wire/registers.wire'), 'utf-8')
 const register16Wire = readFileSync(resolve(__dirname, '../assets/wire/register16.wire'), 'utf-8')
 const adder16Wire = readFileSync(resolve(__dirname, '../assets/wire/adder16.wire'), 'utf-8')
+const mux8Wire = readFileSync(resolve(__dirname, '../assets/wire/mux8.wire'), 'utf-8')
+const mux16Wire = readFileSync(resolve(__dirname, '../assets/wire/mux16.wire'), 'utf-8')
 
-const stdlib = gatesWire + '\n' + arithmeticWire + '\n' + registersWire + '\n' + register16Wire + '\n' + adder16Wire
+const stdlib = gatesWire + '\n' + arithmeticWire + '\n' + registersWire + '\n' + register16Wire + '\n' + adder16Wire + '\n' + mux8Wire + '\n' + mux16Wire
 
 describe('16-bit Components', () => {
   describe('bit slicing and concat (sanity check)', () => {
@@ -422,6 +424,144 @@ module test_adder16(a:16, b:16, cin) -> (sum:16, cout):
 
         expect(sim.getOutput('sum')).toBe(tc.sum)
         expect(sim.getOutput('cout')).toBe(tc.cout)
+      }
+    })
+  })
+
+  describe('mux16', () => {
+    const testModule = `
+${stdlib}
+
+module test_mux16(a:16, b:16, sel) -> out:16:
+  out = mux16(a, b, sel)
+`
+
+    it('selects input a when sel=0', () => {
+      const result = createSimulator(testModule, 'test_mux16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      sim.setInput('a', 0x1234)
+      sim.setInput('b', 0x5678)
+      sim.setInput('sel', 0)
+      sim.step()
+
+      expect(sim.getOutput('out')).toBe(0x1234)
+    })
+
+    it('selects input b when sel=1', () => {
+      const result = createSimulator(testModule, 'test_mux16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      sim.setInput('a', 0x1234)
+      sim.setInput('b', 0x5678)
+      sim.setInput('sel', 1)
+      sim.step()
+
+      expect(sim.getOutput('out')).toBe(0x5678)
+    })
+
+    it('works with zero values', () => {
+      const result = createSimulator(testModule, 'test_mux16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      // sel=0: choose 0x0000
+      sim.setInput('a', 0x0000)
+      sim.setInput('b', 0xFFFF)
+      sim.setInput('sel', 0)
+      sim.step()
+      expect(sim.getOutput('out')).toBe(0x0000)
+
+      // sel=1: choose 0xFFFF
+      sim.setInput('sel', 1)
+      sim.step()
+      expect(sim.getOutput('out')).toBe(0xFFFF)
+    })
+
+    it('works with maximum values', () => {
+      const result = createSimulator(testModule, 'test_mux16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      sim.setInput('a', 0xFFFF)
+      sim.setInput('b', 0x0000)
+      sim.setInput('sel', 0)
+      sim.step()
+      expect(sim.getOutput('out')).toBe(0xFFFF)
+
+      sim.setInput('sel', 1)
+      sim.step()
+      expect(sim.getOutput('out')).toBe(0x0000)
+    })
+
+    it('toggles between inputs', () => {
+      const result = createSimulator(testModule, 'test_mux16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      sim.setInput('a', 0xAAAA)
+      sim.setInput('b', 0x5555)
+
+      // Toggle sel and verify output switches
+      for (let i = 0; i < 4; i++) {
+        sim.setInput('sel', i % 2)
+        sim.step()
+        expect(sim.getOutput('out')).toBe(i % 2 === 0 ? 0xAAAA : 0x5555)
+      }
+    })
+
+    it('handles same input values', () => {
+      const result = createSimulator(testModule, 'test_mux16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      // When both inputs are same, output is same regardless of sel
+      sim.setInput('a', 0x1234)
+      sim.setInput('b', 0x1234)
+
+      sim.setInput('sel', 0)
+      sim.step()
+      expect(sim.getOutput('out')).toBe(0x1234)
+
+      sim.setInput('sel', 1)
+      sim.step()
+      expect(sim.getOutput('out')).toBe(0x1234)
+    })
+
+    it('works with bit patterns', () => {
+      const result = createSimulator(testModule, 'test_mux16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      const testCases = [
+        { a: 0x00FF, b: 0xFF00, sel: 0, expected: 0x00FF },
+        { a: 0x00FF, b: 0xFF00, sel: 1, expected: 0xFF00 },
+        { a: 0xF0F0, b: 0x0F0F, sel: 0, expected: 0xF0F0 },
+        { a: 0xF0F0, b: 0x0F0F, sel: 1, expected: 0x0F0F },
+      ]
+
+      for (const tc of testCases) {
+        sim.setInput('a', tc.a)
+        sim.setInput('b', tc.b)
+        sim.setInput('sel', tc.sel)
+        sim.step()
+        expect(sim.getOutput('out')).toBe(tc.expected)
       }
     })
   })
