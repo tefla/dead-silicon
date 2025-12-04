@@ -139,7 +139,12 @@
 - [ ] Write/read cycle tests
 - [ ] Address decoding tests
 
-### 5.2: Full System Integration
+### 5.2: Reset Vector
+- [ ] Implement proper 6502-style reset vector at $FFFC/$FFFD
+- [ ] CPU reads reset vector on startup
+- [ ] (Currently using PC=0 for simplicity in Phase 2)
+
+### 5.3: Full System Integration
 - [ ] `system.wire` - CPU + RAM + I/O
 - [ ] Run Pulse test programs
 - [ ] Compare to TypeScript CPU

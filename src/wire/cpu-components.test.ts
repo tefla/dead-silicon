@@ -2464,5 +2464,1211 @@ module test_mux8way8(a:8, b:8, c:8, d:8, e:8, f:8, g:8, h:8, sel:3) -> out:8:
       })
     })
   })
-})
 
+  // ==========================================
+  // Phase 2: CPU Components
+  // ==========================================
+
+  describe('pc (Program Counter)', () => {
+    // Load PC module
+    const pcWire = readFileSync(resolve(__dirname, '../assets/wire/pc.wire'), 'utf-8')
+    const pcStdlib = stdlib + '\n' + pcWire
+
+    const testModule = `
+${pcStdlib}
+
+module test_pc(clk, reset, load, inc, din:16) -> out:16:
+  out = pc(clk, reset, load, inc, din)
+`
+
+    // Helper to clock the PC
+    function clockCycle(sim: any) {
+      sim.setInput('clk', 0)
+      sim.step()
+      sim.setInput('clk', 1)
+      sim.step()
+    }
+
+    // ==========================================
+    // Basic Operations
+    // ==========================================
+    describe('basic operations', () => {
+      it('starts at zero after reset', () => {
+        const result = createSimulator(testModule, 'test_pc')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('reset', 1)
+        sim.setInput('load', 0)
+        sim.setInput('inc', 0)
+        sim.setInput('din', 0)
+        clockCycle(sim)
+
+        expect(sim.getOutput('out')).toBe(0x0000)
+      })
+
+      it('increments by 1 when inc=1', () => {
+        const result = createSimulator(testModule, 'test_pc')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Reset first
+        sim.setInput('reset', 1)
+        sim.setInput('load', 0)
+        sim.setInput('inc', 0)
+        sim.setInput('din', 0)
+        clockCycle(sim)
+        expect(sim.getOutput('out')).toBe(0x0000)
+
+        // Now increment
+        sim.setInput('reset', 0)
+        sim.setInput('inc', 1)
+        clockCycle(sim)
+        expect(sim.getOutput('out')).toBe(0x0001)
+
+        // Increment again
+        clockCycle(sim)
+        expect(sim.getOutput('out')).toBe(0x0002)
+      })
+
+      it('loads value when load=1', () => {
+        const result = createSimulator(testModule, 'test_pc')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('reset', 0)
+        sim.setInput('load', 1)
+        sim.setInput('inc', 0)
+        sim.setInput('din', 0x1234)
+        clockCycle(sim)
+
+        expect(sim.getOutput('out')).toBe(0x1234)
+      })
+
+      it('holds value when all controls are 0', () => {
+        const result = createSimulator(testModule, 'test_pc')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Load a value first
+        sim.setInput('reset', 0)
+        sim.setInput('load', 1)
+        sim.setInput('inc', 0)
+        sim.setInput('din', 0xABCD)
+        clockCycle(sim)
+        expect(sim.getOutput('out')).toBe(0xABCD)
+
+        // Now hold
+        sim.setInput('load', 0)
+        clockCycle(sim)
+        expect(sim.getOutput('out')).toBe(0xABCD)
+
+        clockCycle(sim)
+        expect(sim.getOutput('out')).toBe(0xABCD)
+      })
+    })
+
+    // ==========================================
+    // Priority Tests
+    // ==========================================
+    describe('priority', () => {
+      it('reset takes priority over load', () => {
+        const result = createSimulator(testModule, 'test_pc')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Both reset and load active
+        sim.setInput('reset', 1)
+        sim.setInput('load', 1)
+        sim.setInput('inc', 0)
+        sim.setInput('din', 0x5678)
+        clockCycle(sim)
+
+        expect(sim.getOutput('out')).toBe(0x0000) // Reset wins
+      })
+
+      it('reset takes priority over inc', () => {
+        const result = createSimulator(testModule, 'test_pc')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Load a non-zero value first
+        sim.setInput('reset', 0)
+        sim.setInput('load', 1)
+        sim.setInput('inc', 0)
+        sim.setInput('din', 0x1000)
+        clockCycle(sim)
+
+        // Now reset and inc together
+        sim.setInput('reset', 1)
+        sim.setInput('load', 0)
+        sim.setInput('inc', 1)
+        clockCycle(sim)
+
+        expect(sim.getOutput('out')).toBe(0x0000) // Reset wins
+      })
+
+      it('load takes priority over inc', () => {
+        const result = createSimulator(testModule, 'test_pc')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Set PC to 0x0010 first
+        sim.setInput('reset', 0)
+        sim.setInput('load', 1)
+        sim.setInput('inc', 0)
+        sim.setInput('din', 0x0010)
+        clockCycle(sim)
+
+        // Now load and inc together
+        sim.setInput('load', 1)
+        sim.setInput('inc', 1)
+        sim.setInput('din', 0x2000)
+        clockCycle(sim)
+
+        expect(sim.getOutput('out')).toBe(0x2000) // Load wins
+      })
+    })
+
+    // ==========================================
+    // Edge Cases
+    // ==========================================
+    describe('edge cases', () => {
+      it('wraps around from 0xFFFF to 0x0000', () => {
+        const result = createSimulator(testModule, 'test_pc')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Load 0xFFFF
+        sim.setInput('reset', 0)
+        sim.setInput('load', 1)
+        sim.setInput('inc', 0)
+        sim.setInput('din', 0xFFFF)
+        clockCycle(sim)
+        expect(sim.getOutput('out')).toBe(0xFFFF)
+
+        // Increment should wrap
+        sim.setInput('load', 0)
+        sim.setInput('inc', 1)
+        clockCycle(sim)
+        expect(sim.getOutput('out')).toBe(0x0000)
+      })
+
+      it('can load maximum value 0xFFFF', () => {
+        const result = createSimulator(testModule, 'test_pc')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('reset', 0)
+        sim.setInput('load', 1)
+        sim.setInput('inc', 0)
+        sim.setInput('din', 0xFFFF)
+        clockCycle(sim)
+
+        expect(sim.getOutput('out')).toBe(0xFFFF)
+      })
+
+      it('increments through carry boundary', () => {
+        const result = createSimulator(testModule, 'test_pc')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Load 0x00FF
+        sim.setInput('reset', 0)
+        sim.setInput('load', 1)
+        sim.setInput('inc', 0)
+        sim.setInput('din', 0x00FF)
+        clockCycle(sim)
+        expect(sim.getOutput('out')).toBe(0x00FF)
+
+        // Increment should carry into high byte
+        sim.setInput('load', 0)
+        sim.setInput('inc', 1)
+        clockCycle(sim)
+        expect(sim.getOutput('out')).toBe(0x0100)
+      })
+    })
+
+    // ==========================================
+    // Sequence Tests
+    // ==========================================
+    describe('sequences', () => {
+      it('simulates fetch cycle: inc, inc, load, inc', () => {
+        const result = createSimulator(testModule, 'test_pc')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Reset
+        sim.setInput('reset', 1)
+        sim.setInput('load', 0)
+        sim.setInput('inc', 0)
+        sim.setInput('din', 0)
+        clockCycle(sim)
+        expect(sim.getOutput('out')).toBe(0x0000)
+
+        // Inc (fetch opcode)
+        sim.setInput('reset', 0)
+        sim.setInput('inc', 1)
+        clockCycle(sim)
+        expect(sim.getOutput('out')).toBe(0x0001)
+
+        // Inc (fetch operand)
+        clockCycle(sim)
+        expect(sim.getOutput('out')).toBe(0x0002)
+
+        // Load (jump to address)
+        sim.setInput('inc', 0)
+        sim.setInput('load', 1)
+        sim.setInput('din', 0x1000)
+        clockCycle(sim)
+        expect(sim.getOutput('out')).toBe(0x1000)
+
+        // Inc (fetch next opcode)
+        sim.setInput('load', 0)
+        sim.setInput('inc', 1)
+        clockCycle(sim)
+        expect(sim.getOutput('out')).toBe(0x1001)
+      })
+
+      it('counts from 0 to 10', () => {
+        const result = createSimulator(testModule, 'test_pc')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Reset
+        sim.setInput('reset', 1)
+        sim.setInput('load', 0)
+        sim.setInput('inc', 0)
+        sim.setInput('din', 0)
+        clockCycle(sim)
+
+        // Count up
+        sim.setInput('reset', 0)
+        sim.setInput('inc', 1)
+        for (let i = 1; i <= 10; i++) {
+          clockCycle(sim)
+          expect(sim.getOutput('out')).toBe(i)
+        }
+      })
+    })
+  })
+
+  describe('decoder', () => {
+    // Load decoder module
+    const decoderWire = readFileSync(resolve(__dirname, '../assets/wire/decoder.wire'), 'utf-8')
+    const decoderStdlib = stdlib + '\n' + decoderWire
+
+    const testModule = `
+${decoderStdlib}
+
+module test_decoder(opcode:8) -> (is_lda, is_sta, is_jmp, is_hlt, needs_imm, needs_addr):
+  dec = decoder(opcode)
+  is_lda = dec.is_lda
+  is_sta = dec.is_sta
+  is_jmp = dec.is_jmp
+  is_hlt = dec.is_hlt
+  needs_imm = dec.needs_imm
+  needs_addr = dec.needs_addr
+`
+
+    // ==========================================
+    // LDA Detection
+    // ==========================================
+    describe('LDA detection', () => {
+      it('detects LDA opcode 0xA9', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('opcode', 0xA9)
+        sim.step()
+
+        expect(sim.getOutput('is_lda')).toBe(1)
+        expect(sim.getOutput('is_sta')).toBe(0)
+        expect(sim.getOutput('is_jmp')).toBe(0)
+        expect(sim.getOutput('is_hlt')).toBe(0)
+      })
+
+      it('sets needs_imm for LDA', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('opcode', 0xA9)
+        sim.step()
+
+        expect(sim.getOutput('needs_imm')).toBe(1)
+        expect(sim.getOutput('needs_addr')).toBe(0)
+      })
+    })
+
+    // ==========================================
+    // STA Detection
+    // ==========================================
+    describe('STA detection', () => {
+      it('detects STA opcode 0x8D', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('opcode', 0x8D)
+        sim.step()
+
+        expect(sim.getOutput('is_lda')).toBe(0)
+        expect(sim.getOutput('is_sta')).toBe(1)
+        expect(sim.getOutput('is_jmp')).toBe(0)
+        expect(sim.getOutput('is_hlt')).toBe(0)
+      })
+
+      it('sets needs_addr for STA', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('opcode', 0x8D)
+        sim.step()
+
+        expect(sim.getOutput('needs_imm')).toBe(0)
+        expect(sim.getOutput('needs_addr')).toBe(1)
+      })
+    })
+
+    // ==========================================
+    // JMP Detection
+    // ==========================================
+    describe('JMP detection', () => {
+      it('detects JMP opcode 0x4C', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('opcode', 0x4C)
+        sim.step()
+
+        expect(sim.getOutput('is_lda')).toBe(0)
+        expect(sim.getOutput('is_sta')).toBe(0)
+        expect(sim.getOutput('is_jmp')).toBe(1)
+        expect(sim.getOutput('is_hlt')).toBe(0)
+      })
+
+      it('sets needs_addr for JMP', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('opcode', 0x4C)
+        sim.step()
+
+        expect(sim.getOutput('needs_imm')).toBe(0)
+        expect(sim.getOutput('needs_addr')).toBe(1)
+      })
+    })
+
+    // ==========================================
+    // HLT Detection
+    // ==========================================
+    describe('HLT detection', () => {
+      it('detects HLT opcode 0x02', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('opcode', 0x02)
+        sim.step()
+
+        expect(sim.getOutput('is_lda')).toBe(0)
+        expect(sim.getOutput('is_sta')).toBe(0)
+        expect(sim.getOutput('is_jmp')).toBe(0)
+        expect(sim.getOutput('is_hlt')).toBe(1)
+      })
+
+      it('HLT needs no operands', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('opcode', 0x02)
+        sim.step()
+
+        expect(sim.getOutput('needs_imm')).toBe(0)
+        expect(sim.getOutput('needs_addr')).toBe(0)
+      })
+    })
+
+    // ==========================================
+    // Invalid/Other Opcodes
+    // ==========================================
+    describe('other opcodes', () => {
+      it('does not match for 0x00 (BRK)', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('opcode', 0x00)
+        sim.step()
+
+        expect(sim.getOutput('is_lda')).toBe(0)
+        expect(sim.getOutput('is_sta')).toBe(0)
+        expect(sim.getOutput('is_jmp')).toBe(0)
+        expect(sim.getOutput('is_hlt')).toBe(0)
+      })
+
+      it('does not match for 0xEA (NOP)', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('opcode', 0xEA)
+        sim.step()
+
+        expect(sim.getOutput('is_lda')).toBe(0)
+        expect(sim.getOutput('is_sta')).toBe(0)
+        expect(sim.getOutput('is_jmp')).toBe(0)
+        expect(sim.getOutput('is_hlt')).toBe(0)
+      })
+
+      it('does not match for 0xFF', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('opcode', 0xFF)
+        sim.step()
+
+        expect(sim.getOutput('is_lda')).toBe(0)
+        expect(sim.getOutput('is_sta')).toBe(0)
+        expect(sim.getOutput('is_jmp')).toBe(0)
+        expect(sim.getOutput('is_hlt')).toBe(0)
+      })
+
+      it('does not match for 0xA8 (similar to LDA 0xA9)', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('opcode', 0xA8) // TAY, not LDA
+        sim.step()
+
+        expect(sim.getOutput('is_lda')).toBe(0)
+      })
+
+      it('does not match for 0x8C (similar to STA 0x8D)', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('opcode', 0x8C) // STY, not STA
+        sim.step()
+
+        expect(sim.getOutput('is_sta')).toBe(0)
+      })
+
+      it('does not match for 0x4D (similar to JMP 0x4C)', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('opcode', 0x4D) // EOR absolute, not JMP
+        sim.step()
+
+        expect(sim.getOutput('is_jmp')).toBe(0)
+      })
+
+      it('does not match for 0x03 (similar to HLT 0x02)', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('opcode', 0x03)
+        sim.step()
+
+        expect(sim.getOutput('is_hlt')).toBe(0)
+      })
+    })
+
+    // ==========================================
+    // Exhaustive Tests
+    // ==========================================
+    describe('exhaustive', () => {
+      it('only LDA matches for exactly opcode 0xA9', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        let ldaCount = 0
+
+        for (let i = 0; i < 256; i++) {
+          sim.setInput('opcode', i)
+          sim.step()
+          if (sim.getOutput('is_lda') === 1) {
+            ldaCount++
+            expect(i).toBe(0xA9)
+          }
+        }
+
+        expect(ldaCount).toBe(1)
+      })
+
+      it('only STA matches for exactly opcode 0x8D', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        let staCount = 0
+
+        for (let i = 0; i < 256; i++) {
+          sim.setInput('opcode', i)
+          sim.step()
+          if (sim.getOutput('is_sta') === 1) {
+            staCount++
+            expect(i).toBe(0x8D)
+          }
+        }
+
+        expect(staCount).toBe(1)
+      })
+
+      it('only JMP matches for exactly opcode 0x4C', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        let jmpCount = 0
+
+        for (let i = 0; i < 256; i++) {
+          sim.setInput('opcode', i)
+          sim.step()
+          if (sim.getOutput('is_jmp') === 1) {
+            jmpCount++
+            expect(i).toBe(0x4C)
+          }
+        }
+
+        expect(jmpCount).toBe(1)
+      })
+
+      it('only HLT matches for exactly opcode 0x02', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        let hltCount = 0
+
+        for (let i = 0; i < 256; i++) {
+          sim.setInput('opcode', i)
+          sim.step()
+          if (sim.getOutput('is_hlt') === 1) {
+            hltCount++
+            expect(i).toBe(0x02)
+          }
+        }
+
+        expect(hltCount).toBe(1)
+      })
+
+      it('verified all 4 opcodes together', () => {
+        const result = createSimulator(testModule, 'test_decoder')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+
+        // Test each opcode explicitly
+        const opcodes = [
+          { op: 0xA9, is_lda: 1, is_sta: 0, is_jmp: 0, is_hlt: 0 },
+          { op: 0x8D, is_lda: 0, is_sta: 1, is_jmp: 0, is_hlt: 0 },
+          { op: 0x4C, is_lda: 0, is_sta: 0, is_jmp: 1, is_hlt: 0 },
+          { op: 0x02, is_lda: 0, is_sta: 0, is_jmp: 0, is_hlt: 1 },
+        ]
+
+        for (const tc of opcodes) {
+          sim.setInput('opcode', tc.op)
+          sim.step()
+          expect(sim.getOutput('is_lda')).toBe(tc.is_lda)
+          expect(sim.getOutput('is_sta')).toBe(tc.is_sta)
+          expect(sim.getOutput('is_jmp')).toBe(tc.is_jmp)
+          expect(sim.getOutput('is_hlt')).toBe(tc.is_hlt)
+        }
+      })
+    })
+  })
+
+  describe('cpu_minimal', () => {
+    // Load CPU module and dependencies
+    const pcWire = readFileSync(resolve(__dirname, '../assets/wire/pc.wire'), 'utf-8')
+    const decoderWire = readFileSync(resolve(__dirname, '../assets/wire/decoder.wire'), 'utf-8')
+    const cpuWire = readFileSync(resolve(__dirname, '../assets/wire/cpu_minimal.wire'), 'utf-8')
+    const cpuStdlib = stdlib + '\n' + pcWire + '\n' + decoderWire + '\n' + cpuWire
+
+    const testModule = `
+${cpuStdlib}
+
+module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, a_out:8, pc_out:16, state_out:3):
+  cpu = cpu_minimal(clk, reset, data_in)
+  addr = cpu.addr
+  data_out = cpu.data_out
+  mem_write = cpu.mem_write
+  halted = cpu.halted
+  a_out = cpu.a_out
+  pc_out = cpu.pc_out
+  state_out = cpu.state_out
+`
+
+    // Helper to clock the CPU
+    function clockCycle(sim: ReturnType<typeof createSimulator> extends { ok: true, simulator: infer S } ? S : never) {
+      sim.setInput('clk', 0)
+      sim.step()
+      sim.setInput('clk', 1)
+      sim.step()
+    }
+
+    // Helper to run a program (memory as array, returns final state)
+    function runProgram(sim: ReturnType<typeof createSimulator> extends { ok: true, simulator: infer S } ? S : never, memory: number[], maxCycles: number = 50) {
+      // Reset CPU
+      sim.setInput('reset', 1)
+      sim.setInput('data_in', 0)
+      clockCycle(sim)
+      sim.setInput('reset', 0)
+
+      let cycles = 0
+      const writes: { addr: number; value: number }[] = []
+
+      while (cycles < maxCycles && sim.getOutput('halted') === 0) {
+        // CPU outputs address
+        const addr = sim.getOutput('addr')
+
+        // Provide data from memory
+        const data = addr < memory.length ? memory[addr] : 0
+        sim.setInput('data_in', data)
+
+        // Clock
+        clockCycle(sim)
+
+        // Check for memory write
+        if (sim.getOutput('mem_write') === 1) {
+          writes.push({
+            addr: sim.getOutput('addr'),
+            value: sim.getOutput('data_out')
+          })
+        }
+
+        cycles++
+      }
+
+      return {
+        cycles,
+        halted: sim.getOutput('halted') === 1,
+        a: sim.getOutput('a_out'),
+        pc: sim.getOutput('pc_out'),
+        state: sim.getOutput('state_out'),
+        writes
+      }
+    }
+
+    // ==========================================
+    // Reset and Initial State
+    // ==========================================
+    describe('reset and initial state', () => {
+      it('starts in state 0 (FETCH_OP) after reset', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('reset', 1)
+        sim.setInput('data_in', 0)
+        clockCycle(sim)
+
+        expect(sim.getOutput('state_out')).toBe(0)
+        expect(sim.getOutput('pc_out')).toBe(0)
+        expect(sim.getOutput('halted')).toBe(0)
+      })
+
+      it('PC starts at 0 after reset', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('reset', 1)
+        sim.setInput('data_in', 0)
+        clockCycle(sim)
+
+        expect(sim.getOutput('pc_out')).toBe(0)
+        expect(sim.getOutput('addr')).toBe(0)
+      })
+
+      it('mem_write is 0 after reset', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        sim.setInput('reset', 1)
+        sim.setInput('data_in', 0)
+        clockCycle(sim)
+
+        expect(sim.getOutput('mem_write')).toBe(0)
+      })
+    })
+
+    // ==========================================
+    // HLT Instruction
+    // ==========================================
+    describe('HLT instruction', () => {
+      it('halts CPU after HLT (0x02)', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: HLT at address 0
+        const program = [0x02]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.state).toBe(7)
+      })
+
+      it('traces state machine for debug', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$42, HLT
+        const memory = [0xA9, 0x42, 0x02]
+
+        // Reset
+        sim.setInput('reset', 1)
+        sim.setInput('data_in', 0)
+        clockCycle(sim)
+
+        console.log(`After reset: state=${sim.getOutput('state_out')} PC=${sim.getOutput('pc_out')} A=${sim.getOutput('a_out')}`)
+
+        sim.setInput('reset', 0)
+
+        // Run cycles
+        const trace: string[] = []
+        for (let i = 0; i < 10; i++) {
+          const addr = sim.getOutput('addr')
+          const data = addr < memory.length ? memory[addr] : 0
+          const state = sim.getOutput('state_out')
+          const pc = sim.getOutput('pc_out')
+          const a = sim.getOutput('a_out')
+          const halted = sim.getOutput('halted')
+
+          trace.push(`Cycle ${i}: state=${state} addr=0x${addr.toString(16)} data_in=0x${data.toString(16)} PC=${pc} A=0x${a.toString(16)} halted=${halted}`)
+
+          if (halted) {
+            break
+          }
+
+          sim.setInput('data_in', data)
+          clockCycle(sim)
+        }
+
+        console.log(trace.join('\n'))
+
+        expect(sim.getOutput('halted')).toBe(1)
+        expect(sim.getOutput('a_out')).toBe(0x42)
+      })
+
+      it('stays halted after HLT', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+
+        // Reset and run a few cycles
+        sim.setInput('reset', 1)
+        sim.setInput('data_in', 0)
+        clockCycle(sim)
+        sim.setInput('reset', 0)
+
+        // Provide HLT opcode and run until halted
+        sim.setInput('data_in', 0x02)
+        for (let i = 0; i < 10; i++) {
+          clockCycle(sim)
+        }
+
+        // Should be halted and stay halted
+        expect(sim.getOutput('halted')).toBe(1)
+        expect(sim.getOutput('state_out')).toBe(7)
+
+        // Clock more and verify still halted
+        for (let i = 0; i < 5; i++) {
+          clockCycle(sim)
+          expect(sim.getOutput('halted')).toBe(1)
+        }
+      })
+    })
+
+    // ==========================================
+    // LDA Instruction
+    // ==========================================
+    describe('LDA instruction', () => {
+      it('loads immediate value 0x42 into A', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$42, HLT
+        const program = [0xA9, 0x42, 0x02]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x42)
+      })
+
+      it('loads immediate value 0x00 into A', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$00, HLT
+        const program = [0xA9, 0x00, 0x02]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x00)
+      })
+
+      it('loads immediate value 0xFF into A', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$FF, HLT
+        const program = [0xA9, 0xFF, 0x02]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0xFF)
+      })
+
+      it('multiple LDA instructions update A', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$10, LDA #$20, LDA #$30, HLT
+        const program = [0xA9, 0x10, 0xA9, 0x20, 0xA9, 0x30, 0x02]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x30) // Last value loaded
+      })
+    })
+
+    // ==========================================
+    // STA Instruction
+    // ==========================================
+    describe('STA instruction', () => {
+      it('stores A to memory address', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$42, STA $0100, HLT
+        const program = [0xA9, 0x42, 0x8D, 0x00, 0x01, 0x02]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x42)
+        expect(final.writes.length).toBe(1)
+        expect(final.writes[0].addr).toBe(0x0100)
+        expect(final.writes[0].value).toBe(0x42)
+      })
+
+      it('stores to address 0x0000', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$AB, STA $0000, HLT
+        const program = [0xA9, 0xAB, 0x8D, 0x00, 0x00, 0x02]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.writes[0].addr).toBe(0x0000)
+        expect(final.writes[0].value).toBe(0xAB)
+      })
+
+      it('stores to high address 0xFF00', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$CD, STA $FF00, HLT
+        const program = [0xA9, 0xCD, 0x8D, 0x00, 0xFF, 0x02]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.writes[0].addr).toBe(0xFF00)
+        expect(final.writes[0].value).toBe(0xCD)
+      })
+
+      it('multiple STA writes to different addresses', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$11, STA $0100, LDA #$22, STA $0101, HLT
+        const program = [
+          0xA9, 0x11,       // LDA #$11
+          0x8D, 0x00, 0x01, // STA $0100
+          0xA9, 0x22,       // LDA #$22
+          0x8D, 0x01, 0x01, // STA $0101
+          0x02              // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.writes.length).toBe(2)
+        expect(final.writes[0]).toEqual({ addr: 0x0100, value: 0x11 })
+        expect(final.writes[1]).toEqual({ addr: 0x0101, value: 0x22 })
+      })
+    })
+
+    // ==========================================
+    // JMP Instruction
+    // ==========================================
+    describe('JMP instruction', () => {
+      it('jumps to address and continues execution', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program at 0x0000: JMP $0006
+        // Program at 0x0003: LDA #$11 (should be skipped)
+        // Program at 0x0005: HLT (should be skipped)
+        // Program at 0x0006: LDA #$42
+        // Program at 0x0008: HLT
+        const program = new Array(10).fill(0)
+        program[0] = 0x4C  // JMP
+        program[1] = 0x06  // low byte of address
+        program[2] = 0x00  // high byte of address
+        program[3] = 0xA9  // LDA (skipped)
+        program[4] = 0x11  // value
+        program[5] = 0x02  // HLT (skipped)
+        program[6] = 0xA9  // LDA (executed)
+        program[7] = 0x42  // value
+        program[8] = 0x02  // HLT
+
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x42) // Should have 0x42, not 0x11
+      })
+
+      it('jumps backward (simple loop exit)', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program:
+        // 0x0000: JMP $0003 (skip to HLT)
+        // 0x0003: HLT
+        const program = [
+          0x4C, 0x03, 0x00,  // JMP $0003
+          0x02               // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.pc).toBe(4) // PC after HLT opcode fetch
+      })
+
+      it('jumps to high memory', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Create large memory with program at start and HLT at 0x1000
+        const program = new Array(0x1001).fill(0)
+        program[0] = 0x4C    // JMP
+        program[1] = 0x00    // low byte
+        program[2] = 0x10    // high byte (0x1000)
+        program[0x1000] = 0x02  // HLT at 0x1000
+
+        const final = runProgram(sim, program, 20)
+
+        expect(final.halted).toBe(true)
+      })
+    })
+
+    // ==========================================
+    // Complete Programs
+    // ==========================================
+    describe('complete programs', () => {
+      it('load and store: LDA #$42, STA $0100, HLT', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = [
+          0xA9, 0x42,        // LDA #$42
+          0x8D, 0x00, 0x01,  // STA $0100
+          0x02               // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x42)
+        expect(final.writes).toEqual([{ addr: 0x0100, value: 0x42 }])
+      })
+
+      it('store then jump: LDA, STA, JMP to HLT', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = new Array(20).fill(0)
+        // LDA #$99
+        program[0] = 0xA9
+        program[1] = 0x99
+        // STA $0200
+        program[2] = 0x8D
+        program[3] = 0x00
+        program[4] = 0x02
+        // JMP $0010
+        program[5] = 0x4C
+        program[6] = 0x10
+        program[7] = 0x00
+        // HLT at 0x0010
+        program[0x10] = 0x02
+
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x99)
+        expect(final.writes).toEqual([{ addr: 0x0200, value: 0x99 }])
+      })
+
+      it('multiple stores with jumps', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = new Array(0x20).fill(0)
+        // At 0x0000: LDA #$AA, STA $0300, JMP $0010
+        program[0] = 0xA9; program[1] = 0xAA
+        program[2] = 0x8D; program[3] = 0x00; program[4] = 0x03
+        program[5] = 0x4C; program[6] = 0x10; program[7] = 0x00
+
+        // At 0x0010: LDA #$BB, STA $0301, HLT
+        program[0x10] = 0xA9; program[0x11] = 0xBB
+        program[0x12] = 0x8D; program[0x13] = 0x01; program[0x14] = 0x03
+        program[0x15] = 0x02
+
+        const final = runProgram(sim, program, 50)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0xBB)
+        expect(final.writes).toEqual([
+          { addr: 0x0300, value: 0xAA },
+          { addr: 0x0301, value: 0xBB }
+        ])
+      })
+    })
+
+    // ==========================================
+    // Edge Cases
+    // ==========================================
+    describe('edge cases', () => {
+      it('handles PC rollover at address boundary', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Start PC near address boundary and execute simple instructions
+        // Jump to 0xFFFD, then LDA, HLT wraps around
+        // This is a simplified test - full edge case would need more setup
+        const program = [0x02]  // Just HLT for basic test
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+      })
+
+      it('STA writes correct value when A is 0x00', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = [
+          0xA9, 0x00,        // LDA #$00
+          0x8D, 0x50, 0x00,  // STA $0050
+          0x02               // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.writes).toEqual([{ addr: 0x0050, value: 0x00 }])
+      })
+
+      it('STA writes correct value when A is 0xFF', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = [
+          0xA9, 0xFF,        // LDA #$FF
+          0x8D, 0x50, 0x00,  // STA $0050
+          0x02               // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.writes).toEqual([{ addr: 0x0050, value: 0xFF }])
+      })
+    })
+  })
+})

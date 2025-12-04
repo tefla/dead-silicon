@@ -1,0 +1,194 @@
+; Minimal CPU - 4 Instruction CPU with State Machine
+; Implements: LDA #imm, STA $addr, JMP $addr, HLT
+;
+; State Machine:
+;   STATE_FETCH_OP  (0) - Fetch opcode, increment PC
+;   STATE_DECODE    (1) - Decode opcode, determine next state
+;   STATE_FETCH_IMM (2) - Fetch immediate value (LDA)
+;   STATE_FETCH_LO  (3) - Fetch address low byte (STA/JMP)
+;   STATE_FETCH_HI  (4) - Fetch address high byte (STA/JMP)
+;   STATE_EXEC_STA  (5) - Execute STA (write to memory)
+;   STATE_EXEC_JMP  (6) - Execute JMP (load PC)
+;   STATE_HALTED    (7) - CPU halted
+;
+; Inputs:
+;   clk       - Clock signal
+;   reset     - Reset CPU
+;   data_in:8 - Data from memory
+;
+; Outputs:
+;   addr:16     - Address bus (PC or operand address)
+;   data_out:8  - Data to memory (A register for STA)
+;   mem_write   - Memory write enable
+;   halted      - CPU is halted
+;   a_out:8     - Current A register value (for debugging)
+;   pc_out:16   - Current PC value (for debugging)
+;   state_out:3 - Current state (for debugging)
+
+module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, a_out:8, pc_out:16, state_out:3):
+  ; ==========================================
+  ; State Register (3 bits for 8 states)
+  ; ==========================================
+  ; We use separate registers for each bit
+  state0 = dff(next_state0, clk)
+  state1 = dff(next_state1, clk)
+  state2 = dff(next_state2, clk)
+  state_out = concat(state2, state1, state0)
+  
+  ; ==========================================
+  ; State Decoding
+  ; ==========================================
+  ns0 = not(state0)
+  ns1 = not(state1)
+  ns2 = not(state2)
+  
+  ; is_state_0 = 000 (FETCH_OP)
+  is_state_0 = and(and(ns2, ns1), ns0)
+  
+  ; is_state_1 = 001 (DECODE)
+  is_state_1 = and(and(ns2, ns1), state0)
+  
+  ; is_state_2 = 010 (FETCH_IMM for LDA)
+  is_state_2 = and(and(ns2, state1), ns0)
+  
+  ; is_state_3 = 011 (FETCH_LO)
+  is_state_3 = and(and(ns2, state1), state0)
+  
+  ; is_state_4 = 100 (FETCH_HI)
+  is_state_4 = and(and(state2, ns1), ns0)
+  
+  ; is_state_5 = 101 (EXEC_STA)
+  is_state_5 = and(and(state2, ns1), state0)
+  
+  ; is_state_6 = 110 (EXEC_JMP)
+  is_state_6 = and(and(state2, state1), ns0)
+  
+  ; is_state_7 = 111 (HALTED)
+  is_state_7 = and(and(state2, state1), state0)
+  
+  ; ==========================================
+  ; Instruction Register
+  ; ==========================================
+  ; Latch opcode during FETCH_OP state
+  ir = register8(data_in, is_state_0, clk)
+  
+  ; Decode the instruction
+  dec = decoder(ir)
+  
+  ; ==========================================
+  ; Address Latch (low and high bytes)
+  ; ==========================================
+  ; Latch low byte during FETCH_LO
+  addr_lo = register8(data_in, is_state_3, clk)
+  
+  ; Latch high byte during FETCH_HI
+  addr_hi = register8(data_in, is_state_4, clk)
+  
+  ; ==========================================
+  ; Accumulator (A register)
+  ; ==========================================
+  ; Load A during FETCH_IMM (for LDA)
+  a_out = register8(data_in, is_state_2, clk)
+  
+  ; ==========================================
+  ; Program Counter
+  ; ==========================================
+  ; Build 16-bit address from latches (for JMP)
+  pc_target = concat(addr_hi, addr_lo)
+
+  ; Skip PC increment flag: set when in EXEC states, cleared after leaving FETCH_OP
+  ; The flag needs to persist through the FETCH_OP state
+  ; Set when in EXEC (will be active next cycle when we enter FETCH_OP)
+  set_skip = or(is_state_5, is_state_6)
+  ; Clear when in DECODE after FETCH_OP (one state later), OR on reset
+  clear_skip = or(is_state_1, reset)
+  ; Keep current value if neither setting nor clearing
+  keep_skip = and(not(set_skip), not(clear_skip))
+  next_skip_val = or(set_skip, and(skip_pc_inc, keep_skip))
+  skip_pc_inc = dff(next_skip_val, clk)
+
+  ; PC increment during fetch states, but NOT in FETCH_OP if skip flag is set
+  inc_in_fetch_op = and(is_state_0, not(skip_pc_inc))
+  pc_inc = or(or(inc_in_fetch_op, is_state_2), or(is_state_3, is_state_4))
+
+  ; PC load during JMP execute
+  pc_load = is_state_6
+
+  pc_out = pc(clk, reset, pc_load, pc_inc, pc_target)
+  
+  ; ==========================================
+  ; Next State Logic
+  ; ==========================================
+  ; Default: stay in same state (will be overridden)
+  
+  ; From FETCH_OP (0) -> DECODE (1): next = 001
+  from_0_to_1 = is_state_0
+  
+  ; From DECODE (1):
+  ;   if LDA -> FETCH_IMM (2): next = 010
+  ;   if STA/JMP -> FETCH_LO (3): next = 011
+  ;   if HLT -> HALTED (7): next = 111
+  from_1_to_2 = and(is_state_1, dec.is_lda)
+  from_1_to_3 = and(is_state_1, dec.needs_addr)
+  from_1_to_7 = and(is_state_1, dec.is_hlt)
+  
+  ; From FETCH_IMM (2) -> FETCH_OP (0): next = 000
+  from_2_to_0 = is_state_2
+  
+  ; From FETCH_LO (3) -> FETCH_HI (4): next = 100
+  from_3_to_4 = is_state_3
+  
+  ; From FETCH_HI (4):
+  ;   if STA -> EXEC_STA (5): next = 101
+  ;   if JMP -> EXEC_JMP (6): next = 110
+  from_4_to_5 = and(is_state_4, dec.is_sta)
+  from_4_to_6 = and(is_state_4, dec.is_jmp)
+
+  ; From EXEC_STA (5) -> FETCH_OP (0): next = 000
+  ; (PC already points to next instruction, skip increment via prev_was_exec)
+  from_5_to_0 = is_state_5
+
+  ; From EXEC_JMP (6) -> FETCH_OP (0): next = 000
+  ; (PC now points to jump target, fetch from there)
+  from_6_to_0 = is_state_6
+  
+  ; HALTED (7) stays at 7: next = 111
+  stay_at_7 = is_state_7
+  
+  ; Calculate next state bits
+  ; next_state0 = 1 when going to state 1, 3, 5, or 7
+  goto_1 = from_0_to_1
+  goto_odd = or(or(goto_1, from_1_to_3), or(from_4_to_5, stay_at_7))
+  set_bit_0 = or(goto_odd, from_1_to_7)
+
+  ; next_state1 = 1 when going to state 2, 3, 6, or 7
+  goto_2_3 = or(from_1_to_2, from_1_to_3)
+  goto_6_7 = or(from_4_to_6, or(from_1_to_7, stay_at_7))
+  set_bit_1 = or(goto_2_3, goto_6_7)
+
+  ; next_state2 = 1 when going to state 4, 5, 6, or 7
+  goto_4 = from_3_to_4
+  goto_5_6 = or(from_4_to_5, from_4_to_6)
+  goto_7 = or(from_1_to_7, stay_at_7)
+  set_bit_2 = or(or(goto_4, goto_5_6), goto_7)
+  
+  ; Apply reset (goes to state 0)
+  next_state0 = and(set_bit_0, not(reset))
+  next_state1 = and(set_bit_1, not(reset))
+  next_state2 = and(set_bit_2, not(reset))
+  
+  ; ==========================================
+  ; Output Logic
+  ; ==========================================
+  ; Address bus: PC during fetch, operand_addr during EXEC_STA
+  operand_addr = concat(addr_hi, addr_lo)
+  addr = mux16(pc_out, operand_addr, is_state_5)
+  
+  ; Data out: A register (for STA)
+  data_out = a_out
+  
+  ; Memory write: only during EXEC_STA
+  mem_write = is_state_5
+  
+  ; Halted output
+  halted = is_state_7
