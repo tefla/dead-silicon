@@ -3134,13 +3134,14 @@ module test_decoder(opcode:8) -> (is_lda, is_sta, is_jmp, is_hlt, needs_imm, nee
     const testModule = `
 ${cpuStdlib}
 
-module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, a_out:8, pc_out:16, state_out:3):
+module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, a_out:8, x_out:8, pc_out:16, state_out:3):
   cpu = cpu_minimal(clk, reset, data_in)
   addr = cpu.addr
   data_out = cpu.data_out
   mem_write = cpu.mem_write
   halted = cpu.halted
   a_out = cpu.a_out
+  x_out = cpu.x_out
   pc_out = cpu.pc_out
   state_out = cpu.state_out
 `
@@ -3190,6 +3191,7 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
         cycles,
         halted: sim.getOutput('halted') === 1,
         a: sim.getOutput('a_out'),
+        x: sim.getOutput('x_out'),
         pc: sim.getOutput('pc_out'),
         state: sim.getOutput('state_out'),
         writes
@@ -3394,6 +3396,91 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
 
         expect(final.halted).toBe(true)
         expect(final.a).toBe(0x30) // Last value loaded
+      })
+    })
+
+    // ==========================================
+    // LDX Instruction
+    // ==========================================
+    describe('LDX instruction', () => {
+      it('loads immediate value 0x42 into X', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDX #$42, HLT
+        const program = [0xA2, 0x42, 0x02]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x42)
+      })
+
+      it('loads immediate value 0x00 into X', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDX #$00, HLT
+        const program = [0xA2, 0x00, 0x02]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x00)
+      })
+
+      it('loads immediate value 0xFF into X', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDX #$FF, HLT
+        const program = [0xA2, 0xFF, 0x02]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0xFF)
+      })
+
+      it('multiple LDX instructions update X', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDX #$10, LDX #$20, LDX #$30, HLT
+        const program = [
+          0xA2, 0x10,  // LDX #$10
+          0xA2, 0x20,  // LDX #$20
+          0xA2, 0x30,  // LDX #$30
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x30) // Last value loaded
+      })
+
+      it('LDX does not affect A register', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$AA, LDX #$BB, HLT
+        const program = [
+          0xA9, 0xAA,  // LDA #$AA
+          0xA2, 0xBB,  // LDX #$BB
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0xAA)
+        expect(final.x).toBe(0xBB)
       })
     })
 

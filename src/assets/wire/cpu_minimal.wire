@@ -25,7 +25,7 @@
 ;   pc_out:16   - Current PC value (for debugging)
 ;   state_out:3 - Current state (for debugging)
 
-module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, a_out:8, pc_out:16, state_out:3):
+module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, a_out:8, x_out:8, pc_out:16, state_out:3):
   ; ==========================================
   ; State Register (3 bits for 8 states)
   ; ==========================================
@@ -91,8 +91,16 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; ==========================================
   ; Accumulator (A register)
   ; ==========================================
-  ; Load A during FETCH_IMM (for LDA)
-  a_out = register8(data_in, is_state_2, clk)
+  ; Load A during FETCH_IMM when instruction is LDA
+  a_load = and(is_state_2, dec.is_lda)
+  a_out = register8(data_in, a_load, clk)
+
+  ; ==========================================
+  ; X Index Register
+  ; ==========================================
+  ; Load X during FETCH_IMM when instruction is LDX
+  x_load = and(is_state_2, dec.is_ldx)
+  x_out = register8(data_in, x_load, clk)
   
   ; ==========================================
   ; Program Counter
@@ -132,10 +140,10 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   from_0_to_1 = is_state_0
   
   ; From DECODE (1):
-  ;   if LDA -> FETCH_IMM (2): next = 010
+  ;   if LDA/LDX -> FETCH_IMM (2): next = 010
   ;   if STA/JMP -> FETCH_LO (3): next = 011
   ;   if HLT -> HALTED (7): next = 111
-  from_1_to_2 = and(is_state_1, dec.is_lda)
+  from_1_to_2 = and(is_state_1, dec.needs_imm)
   from_1_to_3 = and(is_state_1, dec.needs_addr)
   from_1_to_7 = and(is_state_1, dec.is_hlt)
   
