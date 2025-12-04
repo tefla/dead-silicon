@@ -340,11 +340,6 @@ function compileExpr(
       const objResult = compileExpr(expr.object, wires, nodes, moduleName, aliases, modules)
       if (!objResult.ok) return objResult
 
-      const memberWire = `${objResult.value.wire}.${expr.field}`
-
-      // Look up the width from the module definition
-      let width = 1 // default
-
       // Resolve aliases first - objResult.value.wire might be an alias
       let resolvedWire = objResult.value.wire
       if (aliases) {
@@ -354,6 +349,11 @@ function compileExpr(
           resolvedWire = aliases.get(resolvedWire)!
         }
       }
+
+      const memberWire = `${resolvedWire}.${expr.field}`
+
+      // Look up the width from the module definition
+      let width = 1 // default
 
       // Find the node that outputs to the resolved wire
       const sourceNode = nodes.find(n => n.outputs.includes(resolvedWire))
