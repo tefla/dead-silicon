@@ -114,14 +114,21 @@
 
 ## Phase 4: Complete Instruction Set (Days 7-9)
 
-### 4.1: Logic Instructions (Day 7)
-- [ ] AND #imm
-- [ ] ORA #imm
-- [ ] EOR #imm
+### 4.1: Logic Instructions ✅
+- [x] AND #imm (5 tests)
+- [x] ORA #imm (5 tests)
+- [x] EOR #imm (6 tests)
 
-### 4.2: Register Operations (Day 8)
-- [ ] INX, DEX, INY, DEY
-- [ ] TAX, TAY, TXA, TYA
+### 4.2: Register Operations ✅
+- [x] INX, DEX (already done in Phase 3)
+- [x] LDY #imm (4 tests)
+- [x] STY $addr (2 tests)
+- [x] INY (4 tests)
+- [x] DEY (6 tests)
+- [x] TAX (4 tests)
+- [x] TAY (4 tests)
+- [x] TXA (4 tests)
+- [x] TYA (4 tests)
 
 ### 4.3: Stack Operations (Day 9)
 - [ ] Stack pointer register
@@ -198,11 +205,14 @@
 ## Current Status
 
 **Active Phase:** Phase 4 (complete instruction set)
-**Current Task:** Logic instructions (AND, ORA, EOR)
-**Tests Passing:** 1328 total (230 CPU component tests + 13 WASM tests)
+**Current Task:** Stack operations (PHA, PLA, JSR, RTS)
+**Tests Passing:** 1376 total (278 CPU component tests + 13 WASM tests)
 **Last Updated:** 2025-12-04
 
 ### Recent Accomplishments
+- ✅ **Transfer Instructions Complete!** TAX, TAY, TXA, TYA - 16 tests (24 total instructions!)
+- ✅ **Y Register Complete!** LDY, STY, INY, DEY - 16 tests
+- ✅ **Phase 4.1 Complete!** Logic instructions (AND, ORA, EOR) - 16 tests
 - 🔥 **WASM Simulator**: Compiles circuits to WebAssembly for maximum efficiency
   - **202 KHz** - 28x faster than levelized, 2272x faster than interpreter
   - Uses Binaryen.js for runtime WASM bytecode generation

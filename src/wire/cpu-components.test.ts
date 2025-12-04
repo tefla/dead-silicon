@@ -3135,7 +3135,7 @@ module test_decoder(opcode:8) -> (is_lda, is_sta, is_jmp, is_hlt, needs_imm, nee
     const testModule = `
 ${cpuStdlib}
 
-module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, a_out:8, x_out:8, flags_out:4, pc_out:16, state_out:3):
+module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, a_out:8, x_out:8, y_out:8, flags_out:4, pc_out:16, state_out:3):
   cpu = cpu_minimal(clk, reset, data_in)
   addr = cpu.addr
   data_out = cpu.data_out
@@ -3143,6 +3143,7 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
   halted = cpu.halted
   a_out = cpu.a_out
   x_out = cpu.x_out
+  y_out = cpu.y_out
   flags_out = cpu.flags_out
   pc_out = cpu.pc_out
   state_out = cpu.state_out
@@ -3194,6 +3195,7 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
         halted: sim.getOutput('halted') === 1,
         a: sim.getOutput('a_out'),
         x: sim.getOutput('x_out'),
+        y: sim.getOutput('y_out'),
         flags: sim.getOutput('flags_out'),
         pc: sim.getOutput('pc_out'),
         state: sim.getOutput('state_out'),
@@ -4801,6 +4803,970 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
 
         expect(final.halted).toBe(true)
         expect(final.x).toBe(0x00) // Loop finished when X reached 0
+      })
+    })
+
+    // AND Instruction (Phase 4)
+    // Opcode: 0x29 (AND #imm)
+    describe('AND instruction', () => {
+      it('AND basic bitwise AND', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$FF, AND #$0F, HLT
+        const program = [
+          0xA9, 0xFF,  // LDA #$FF
+          0x29, 0x0F,  // AND #$0F -> A = 0x0F
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x0F)
+      })
+
+      it('AND sets zero flag', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$F0, AND #$0F, HLT (no bits in common)
+        const program = [
+          0xA9, 0xF0,  // LDA #$F0
+          0x29, 0x0F,  // AND #$0F -> A = 0x00
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x00)
+        expect(final.flags & 0b0010).toBe(0b0010) // Zero flag set
+      })
+
+      it('AND sets negative flag', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$FF, AND #$80, HLT
+        const program = [
+          0xA9, 0xFF,  // LDA #$FF
+          0x29, 0x80,  // AND #$80 -> A = 0x80
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x80)
+        expect(final.flags & 0b0100).toBe(0b0100) // Negative flag set
+      })
+
+      it('AND does not affect carry flag', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$FF, ADC #$01 (sets carry), AND #$0F, HLT
+        const program = [
+          0xA9, 0xFF,  // LDA #$FF
+          0x69, 0x01,  // ADC #$01 -> A = 0x00, C = 1
+          0x29, 0x0F,  // AND #$0F -> A = 0x00 (carry should stay 1)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 40)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x00)
+        expect(final.flags & 0b0001).toBe(1) // Carry preserved from ADC
+      })
+
+      it('AND various bit patterns', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$AA, AND #$55, HLT (alternating bits)
+        const program = [
+          0xA9, 0xAA,  // LDA #$AA (10101010)
+          0x29, 0x55,  // AND #$55 (01010101) -> 0x00
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x00)
+        expect(final.flags & 0b0010).toBe(0b0010) // Zero flag set
+      })
+    })
+
+    // ORA Instruction (Phase 4)
+    // Opcode: 0x09 (ORA #imm)
+    describe('ORA instruction', () => {
+      it('ORA basic bitwise OR', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$F0, ORA #$0F, HLT
+        const program = [
+          0xA9, 0xF0,  // LDA #$F0
+          0x09, 0x0F,  // ORA #$0F -> A = 0xFF
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0xFF)
+      })
+
+      it('ORA sets zero flag (0 OR 0)', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$00, ORA #$00, HLT
+        const program = [
+          0xA9, 0x00,  // LDA #$00
+          0x09, 0x00,  // ORA #$00 -> A = 0x00
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x00)
+        expect(final.flags & 0b0010).toBe(0b0010) // Zero flag set
+      })
+
+      it('ORA sets negative flag', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$00, ORA #$80, HLT
+        const program = [
+          0xA9, 0x00,  // LDA #$00
+          0x09, 0x80,  // ORA #$80 -> A = 0x80
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x80)
+        expect(final.flags & 0b0100).toBe(0b0100) // Negative flag set
+      })
+
+      it('ORA does not affect carry flag', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$FF, ADC #$01 (sets carry), ORA #$0F, HLT
+        const program = [
+          0xA9, 0xFF,  // LDA #$FF
+          0x69, 0x01,  // ADC #$01 -> A = 0x00, C = 1
+          0x09, 0x0F,  // ORA #$0F -> A = 0x0F (carry should stay 1)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 40)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x0F)
+        expect(final.flags & 0b0001).toBe(1) // Carry preserved from ADC
+      })
+
+      it('ORA alternating patterns', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$AA, ORA #$55, HLT
+        const program = [
+          0xA9, 0xAA,  // LDA #$AA (10101010)
+          0x09, 0x55,  // ORA #$55 (01010101) -> 0xFF
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0xFF)
+      })
+    })
+
+    // EOR Instruction (Phase 4)
+    // Opcode: 0x49 (EOR #imm)
+    describe('EOR instruction', () => {
+      it('EOR basic bitwise XOR', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$FF, EOR #$0F, HLT
+        const program = [
+          0xA9, 0xFF,  // LDA #$FF
+          0x49, 0x0F,  // EOR #$0F -> A = 0xF0
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0xF0)
+      })
+
+      it('EOR sets zero flag (X XOR X = 0)', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$AA, EOR #$AA, HLT
+        const program = [
+          0xA9, 0xAA,  // LDA #$AA
+          0x49, 0xAA,  // EOR #$AA -> A = 0x00
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x00)
+        expect(final.flags & 0b0010).toBe(0b0010) // Zero flag set
+      })
+
+      it('EOR sets negative flag', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$00, EOR #$80, HLT
+        const program = [
+          0xA9, 0x00,  // LDA #$00
+          0x49, 0x80,  // EOR #$80 -> A = 0x80
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x80)
+        expect(final.flags & 0b0100).toBe(0b0100) // Negative flag set
+      })
+
+      it('EOR does not affect carry flag', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$FF, ADC #$01 (sets carry), EOR #$0F, HLT
+        const program = [
+          0xA9, 0xFF,  // LDA #$FF
+          0x69, 0x01,  // ADC #$01 -> A = 0x00, C = 1
+          0x49, 0x0F,  // EOR #$0F -> A = 0x0F (carry should stay 1)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 40)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x0F)
+        expect(final.flags & 0b0001).toBe(1) // Carry preserved from ADC
+      })
+
+      it('EOR alternating patterns', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$AA, EOR #$55, HLT
+        const program = [
+          0xA9, 0xAA,  // LDA #$AA (10101010)
+          0x49, 0x55,  // EOR #$55 (01010101) -> 0xFF
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0xFF)
+      })
+
+      it('EOR self-toggle (double XOR)', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$5A, EOR #$FF, EOR #$FF, HLT (toggle twice = original)
+        const program = [
+          0xA9, 0x5A,  // LDA #$5A
+          0x49, 0xFF,  // EOR #$FF -> A = 0xA5
+          0x49, 0xFF,  // EOR #$FF -> A = 0x5A (back to original)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 40)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x5A)
+      })
+    })
+
+    // LDY Instruction (Phase 4)
+    // Opcode: 0xA0 (LDY #imm)
+    describe('LDY instruction', () => {
+      it('LDY loads immediate value into Y', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$42, HLT
+        const program = [
+          0xA0, 0x42,  // LDY #$42
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x42)
+      })
+
+      it('LDY sets zero flag', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$00, HLT
+        const program = [
+          0xA0, 0x00,  // LDY #$00
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x00)
+        expect(final.flags & 0b0010).toBe(0b0010) // Zero flag set
+      })
+
+      it('LDY sets negative flag', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$80, HLT
+        const program = [
+          0xA0, 0x80,  // LDY #$80
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x80)
+        expect(final.flags & 0b0100).toBe(0b0100) // Negative flag set
+      })
+
+      it('LDY clears flags for non-zero positive', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$7F, HLT
+        const program = [
+          0xA0, 0x7F,  // LDY #$7F
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x7F)
+        expect(final.flags & 0b0010).toBe(0) // Zero flag clear
+        expect(final.flags & 0b0100).toBe(0) // Negative flag clear
+      })
+    })
+
+    // STY Instruction (Phase 4)
+    // Opcode: 0x8C (STY $addr)
+    describe('STY instruction', () => {
+      it('STY stores Y to memory', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$42, STY $0010, HLT
+        const program = [
+          0xA0, 0x42,       // LDY #$42
+          0x8C, 0x10, 0x00, // STY $0010
+          0x02              // HLT
+        ]
+        const final = runProgram(sim, program, 50)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x42)
+        expect(final.writes.length).toBeGreaterThanOrEqual(1)
+        const write = final.writes.find(w => w.addr === 0x0010)
+        expect(write).toBeDefined()
+        expect(write?.value).toBe(0x42)
+      })
+
+      it('STY stores to high address', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$FF, STY $1234, HLT
+        const program = [
+          0xA0, 0xFF,       // LDY #$FF
+          0x8C, 0x34, 0x12, // STY $1234
+          0x02              // HLT
+        ]
+        const final = runProgram(sim, program, 50)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0xFF)
+        const write = final.writes.find(w => w.addr === 0x1234)
+        expect(write).toBeDefined()
+        expect(write?.value).toBe(0xFF)
+      })
+    })
+
+    // INY Instruction (Phase 4)
+    // Opcode: 0xC8 (INY)
+    describe('INY instruction', () => {
+      it('INY increments Y', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$05, INY, HLT
+        const program = [
+          0xA0, 0x05,  // LDY #$05
+          0xC8,        // INY (Y=6)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x06)
+      })
+
+      it('INY sets zero flag on wraparound', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$FF, INY, HLT
+        const program = [
+          0xA0, 0xFF,  // LDY #$FF
+          0xC8,        // INY (Y wraps to 0x00)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x00)
+        expect(final.flags & 0b0010).toBe(0b0010) // Zero flag set
+      })
+
+      it('INY sets negative flag', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$7F, INY, HLT
+        const program = [
+          0xA0, 0x7F,  // LDY #$7F
+          0xC8,        // INY (Y becomes 0x80)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x80)
+        expect(final.flags & 0b0100).toBe(0b0100) // Negative flag set
+      })
+
+      it('multiple INY operations', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$00, INY, INY, INY, HLT
+        const program = [
+          0xA0, 0x00,  // LDY #$00
+          0xC8,        // INY (Y=1)
+          0xC8,        // INY (Y=2)
+          0xC8,        // INY (Y=3)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 40)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x03)
+      })
+    })
+
+    // DEY Instruction (Phase 4)
+    // Opcode: 0x88 (DEY)
+    describe('DEY instruction', () => {
+      it('DEY decrements Y', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$05, DEY, HLT
+        const program = [
+          0xA0, 0x05,  // LDY #$05
+          0x88,        // DEY (Y=4)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x04)
+      })
+
+      it('DEY sets zero flag', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$01, DEY, HLT
+        const program = [
+          0xA0, 0x01,  // LDY #$01
+          0x88,        // DEY (Y becomes 0x00)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x00)
+        expect(final.flags & 0b0010).toBe(0b0010) // Zero flag set
+      })
+
+      it('DEY sets negative flag on underflow', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$00, DEY, HLT
+        const program = [
+          0xA0, 0x00,  // LDY #$00
+          0x88,        // DEY (Y becomes 0xFF)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0xFF)
+        expect(final.flags & 0b0100).toBe(0b0100) // Negative flag set
+      })
+
+      it('DEY from 0x80 clears negative flag', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$80, DEY, HLT
+        const program = [
+          0xA0, 0x80,  // LDY #$80
+          0x88,        // DEY (Y becomes 0x7F)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x7F)
+        expect(final.flags & 0b0100).toBe(0) // Negative flag clear
+      })
+
+      it('multiple DEY operations', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$05, DEY, DEY, DEY, HLT
+        const program = [
+          0xA0, 0x05,  // LDY #$05
+          0x88,        // DEY (Y=4)
+          0x88,        // DEY (Y=3)
+          0x88,        // DEY (Y=2)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 40)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x02)
+      })
+
+      it('DEY loop with BNE', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Simple countdown loop: LDY #$03, loop: DEY, BNE loop, HLT
+        // Should execute DEY 3 times until Y=0
+        const program = [
+          0xA0, 0x03,  // LDY #$03
+          0x88,        // DEY (loop start)
+          0xD0, 0xFD,  // BNE -3 (back to DEY)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 50)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x00) // Loop finished when Y reached 0
+      })
+    })
+
+    // ==========================================
+    // TAX - Transfer A to X (0xAA)
+    // ==========================================
+    describe('TAX instruction', () => {
+      it('transfers A to X', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$42, TAX, HLT
+        const program = [
+          0xA9, 0x42,  // LDA #$42
+          0xAA,        // TAX (X = A)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 20)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x42)
+        expect(final.x).toBe(0x42)
+      })
+
+      it('TAX sets zero flag when A is zero', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$00, TAX, HLT
+        const program = [
+          0xA9, 0x00,  // LDA #$00
+          0xAA,        // TAX (X = 0, Z=1)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 20)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x00)
+        expect(final.flags & 0b0010).toBe(0b0010) // Zero flag set
+      })
+
+      it('TAX sets negative flag when A bit 7 is set', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$80, TAX, HLT
+        const program = [
+          0xA9, 0x80,  // LDA #$80
+          0xAA,        // TAX (X = $80, N=1)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 20)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x80)
+        expect(final.flags & 0b0100).toBe(0b0100) // Negative flag set
+      })
+
+      it('TAX does not modify A', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$55, LDX #$AA, TAX, HLT
+        const program = [
+          0xA9, 0x55,  // LDA #$55
+          0xA2, 0xAA,  // LDX #$AA
+          0xAA,        // TAX (X = $55)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 25)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x55)
+        expect(final.x).toBe(0x55)
+      })
+    })
+
+    // ==========================================
+    // TAY - Transfer A to Y (0xA8)
+    // ==========================================
+    describe('TAY instruction', () => {
+      it('transfers A to Y', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$42, TAY, HLT
+        const program = [
+          0xA9, 0x42,  // LDA #$42
+          0xA8,        // TAY (Y = A)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 20)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x42)
+        expect(final.y).toBe(0x42)
+      })
+
+      it('TAY sets zero flag when A is zero', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$00, TAY, HLT
+        const program = [
+          0xA9, 0x00,  // LDA #$00
+          0xA8,        // TAY (Y = 0, Z=1)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 20)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x00)
+        expect(final.flags & 0b0010).toBe(0b0010) // Zero flag set
+      })
+
+      it('TAY sets negative flag when A bit 7 is set', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$80, TAY, HLT
+        const program = [
+          0xA9, 0x80,  // LDA #$80
+          0xA8,        // TAY (Y = $80, N=1)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 20)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x80)
+        expect(final.flags & 0b0100).toBe(0b0100) // Negative flag set
+      })
+
+      it('TAY does not modify A', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$55, LDY #$AA, TAY, HLT
+        const program = [
+          0xA9, 0x55,  // LDA #$55
+          0xA0, 0xAA,  // LDY #$AA
+          0xA8,        // TAY (Y = $55)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 25)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x55)
+        expect(final.y).toBe(0x55)
+      })
+    })
+
+    // ==========================================
+    // TXA - Transfer X to A (0x8A)
+    // ==========================================
+    describe('TXA instruction', () => {
+      it('transfers X to A', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDX #$42, TXA, HLT
+        const program = [
+          0xA2, 0x42,  // LDX #$42
+          0x8A,        // TXA (A = X)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 20)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x42)
+        expect(final.a).toBe(0x42)
+      })
+
+      it('TXA sets zero flag when X is zero', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDX #$00, TXA, HLT
+        const program = [
+          0xA2, 0x00,  // LDX #$00
+          0x8A,        // TXA (A = 0, Z=1)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 20)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x00)
+        expect(final.flags & 0b0010).toBe(0b0010) // Zero flag set
+      })
+
+      it('TXA sets negative flag when X bit 7 is set', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDX #$80, TXA, HLT
+        const program = [
+          0xA2, 0x80,  // LDX #$80
+          0x8A,        // TXA (A = $80, N=1)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 20)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x80)
+        expect(final.flags & 0b0100).toBe(0b0100) // Negative flag set
+      })
+
+      it('TXA does not modify X', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$AA, LDX #$55, TXA, HLT
+        const program = [
+          0xA9, 0xAA,  // LDA #$AA
+          0xA2, 0x55,  // LDX #$55
+          0x8A,        // TXA (A = $55)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 25)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x55)
+        expect(final.a).toBe(0x55)
+      })
+    })
+
+    // ==========================================
+    // TYA - Transfer Y to A (0x98)
+    // ==========================================
+    describe('TYA instruction', () => {
+      it('transfers Y to A', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$42, TYA, HLT
+        const program = [
+          0xA0, 0x42,  // LDY #$42
+          0x98,        // TYA (A = Y)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 20)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x42)
+        expect(final.a).toBe(0x42)
+      })
+
+      it('TYA sets zero flag when Y is zero', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$00, TYA, HLT
+        const program = [
+          0xA0, 0x00,  // LDY #$00
+          0x98,        // TYA (A = 0, Z=1)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 20)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x00)
+        expect(final.flags & 0b0010).toBe(0b0010) // Zero flag set
+      })
+
+      it('TYA sets negative flag when Y bit 7 is set', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDY #$80, TYA, HLT
+        const program = [
+          0xA0, 0x80,  // LDY #$80
+          0x98,        // TYA (A = $80, N=1)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 20)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x80)
+        expect(final.flags & 0b0100).toBe(0b0100) // Negative flag set
+      })
+
+      it('TYA does not modify Y', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$AA, LDY #$55, TYA, HLT
+        const program = [
+          0xA9, 0xAA,  // LDA #$AA
+          0xA0, 0x55,  // LDY #$55
+          0x98,        // TYA (A = $55)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 25)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(0x55)
+        expect(final.a).toBe(0x55)
       })
     })
   })
