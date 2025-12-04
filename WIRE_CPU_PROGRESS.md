@@ -205,12 +205,17 @@
 ## Current Status
 
 **Active Phase:** Phase 4 (complete instruction set)
-**Current Task:** Stack operations (PHA, PLA, JSR, RTS)
-**Tests Passing:** 1376 total (278 CPU component tests + 13 WASM tests)
+**Current Task:** JSR/RTS subroutine calls (requires 5-bit state machine)
+**Tests Passing:** 1386 total (288 CPU component tests + 13 WASM tests)
 **Last Updated:** 2025-12-04
 
 ### Recent Accomplishments
-- ✅ **Transfer Instructions Complete!** TAX, TAY, TXA, TYA - 16 tests (24 total instructions!)
+- ✅ **PHA/PLA Complete!** Stack push/pull for A register - 10 tests (26 total instructions!)
+  - Added Stack Pointer (SP) register, initialized to 0xFF on reset
+  - Proper 6502 semantics: PHA writes then decrements, PLA increments then reads
+  - Fixed simulator timing: memory writes use pre-clock-edge values
+  - 12-state machine with separate PUSH, PUSH_DEC, PULL_INC, PULL_READ states
+- ✅ **Transfer Instructions Complete!** TAX, TAY, TXA, TYA - 16 tests
 - ✅ **Y Register Complete!** LDY, STY, INY, DEY - 16 tests
 - ✅ **Phase 4.1 Complete!** Logic instructions (AND, ORA, EOR) - 16 tests
 - 🔥 **WASM Simulator**: Compiles circuits to WebAssembly for maximum efficiency

@@ -1,15 +1,19 @@
-; Minimal CPU - 24 Instruction CPU with State Machine
-; Implements: LDA #imm, LDX #imm, LDY #imm, ADC #imm, SBC #imm, CMP #imm, AND #imm, ORA #imm, EOR #imm, STA $addr, STX $addr, STY $addr, JMP $addr, BEQ rel, BNE rel, INX, DEX, INY, DEY, TAX, TAY, TXA, TYA, HLT
+; Minimal CPU - 26 Instruction CPU with State Machine
+; Implements: LDA #imm, LDX #imm, LDY #imm, ADC #imm, SBC #imm, CMP #imm, AND #imm, ORA #imm, EOR #imm, STA $addr, STX $addr, STY $addr, JMP $addr, BEQ rel, BNE rel, INX, DEX, INY, DEY, TAX, TAY, TXA, TYA, PHA, PLA, HLT
 ;
-; State Machine:
-;   STATE_FETCH_OP  (0) - Fetch opcode, increment PC
-;   STATE_DECODE    (1) - Decode opcode, determine next state
-;   STATE_FETCH_IMM (2) - Fetch immediate value (LDA)
-;   STATE_FETCH_LO  (3) - Fetch address low byte (STA/JMP)
-;   STATE_FETCH_HI  (4) - Fetch address high byte (STA/JMP)
-;   STATE_EXEC_ST   (5) - Execute STA/STX (write to memory)
-;   STATE_EXEC_JMP  (6) - Execute JMP (load PC)
-;   STATE_HALTED    (7) - CPU halted
+; State Machine (4 bits, 16 states):
+;   STATE_FETCH_OP  (0)  - Fetch opcode, increment PC
+;   STATE_DECODE    (1)  - Decode opcode, determine next state
+;   STATE_FETCH_IMM (2)  - Fetch immediate value (LDA)
+;   STATE_FETCH_LO  (3)  - Fetch address low byte (STA/JMP)
+;   STATE_FETCH_HI  (4)  - Fetch address high byte (STA/JMP)
+;   STATE_EXEC_ST   (5)  - Execute STA/STX (write to memory)
+;   STATE_EXEC_JMP  (6)  - Execute JMP (load PC)
+;   STATE_HALTED    (7)  - CPU halted
+;   STATE_PUSH      (8)  - Push A to stack (PHA) - write, don't decrement yet
+;   STATE_PULL_INC  (9)  - Increment SP for pull (PLA)
+;   STATE_PULL_READ (10) - Read from stack and load A (PLA)
+;   STATE_PUSH_DEC  (11) - Decrement SP after push (PHA)
 ;
 ; Inputs:
 ;   clk       - Clock signal
@@ -25,46 +29,60 @@
 ;   pc_out:16   - Current PC value (for debugging)
 ;   state_out:3 - Current state (for debugging)
 
-module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, a_out:8, x_out:8, y_out:8, flags_out:4, pc_out:16, state_out:3):
+module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, a_out:8, x_out:8, y_out:8, sp_out:8, flags_out:4, pc_out:16, state_out:4):
   ; ==========================================
-  ; State Register (3 bits for 8 states)
+  ; State Register (4 bits for 16 states)
   ; ==========================================
   ; We use separate registers for each bit
   state0 = dff(next_state0, clk)
   state1 = dff(next_state1, clk)
   state2 = dff(next_state2, clk)
-  state_out = concat(state2, state1, state0)
-  
+  state3 = dff(next_state3, clk)
+  state_out = concat(state3, state2, state1, state0)
+
   ; ==========================================
   ; State Decoding
   ; ==========================================
   ns0 = not(state0)
   ns1 = not(state1)
   ns2 = not(state2)
-  
-  ; is_state_0 = 000 (FETCH_OP)
-  is_state_0 = and(and(ns2, ns1), ns0)
-  
-  ; is_state_1 = 001 (DECODE)
-  is_state_1 = and(and(ns2, ns1), state0)
-  
-  ; is_state_2 = 010 (FETCH_IMM for LDA)
-  is_state_2 = and(and(ns2, state1), ns0)
-  
-  ; is_state_3 = 011 (FETCH_LO)
-  is_state_3 = and(and(ns2, state1), state0)
-  
-  ; is_state_4 = 100 (FETCH_HI)
-  is_state_4 = and(and(state2, ns1), ns0)
-  
-  ; is_state_5 = 101 (EXEC_STA)
-  is_state_5 = and(and(state2, ns1), state0)
-  
-  ; is_state_6 = 110 (EXEC_JMP)
-  is_state_6 = and(and(state2, state1), ns0)
-  
-  ; is_state_7 = 111 (HALTED)
-  is_state_7 = and(and(state2, state1), state0)
+  ns3 = not(state3)
+
+  ; is_state_0 = 0000 (FETCH_OP)
+  is_state_0 = and(and(and(ns3, ns2), ns1), ns0)
+
+  ; is_state_1 = 0001 (DECODE)
+  is_state_1 = and(and(and(ns3, ns2), ns1), state0)
+
+  ; is_state_2 = 0010 (FETCH_IMM for LDA)
+  is_state_2 = and(and(and(ns3, ns2), state1), ns0)
+
+  ; is_state_3 = 0011 (FETCH_LO)
+  is_state_3 = and(and(and(ns3, ns2), state1), state0)
+
+  ; is_state_4 = 0100 (FETCH_HI)
+  is_state_4 = and(and(and(ns3, state2), ns1), ns0)
+
+  ; is_state_5 = 0101 (EXEC_STA)
+  is_state_5 = and(and(and(ns3, state2), ns1), state0)
+
+  ; is_state_6 = 0110 (EXEC_JMP)
+  is_state_6 = and(and(and(ns3, state2), state1), ns0)
+
+  ; is_state_7 = 0111 (HALTED)
+  is_state_7 = and(and(and(ns3, state2), state1), state0)
+
+  ; is_state_8 = 1000 (PUSH - for PHA)
+  is_state_8 = and(and(and(state3, ns2), ns1), ns0)
+
+  ; is_state_9 = 1001 (PULL_INC - increment SP for PLA)
+  is_state_9 = and(and(and(state3, ns2), ns1), state0)
+
+  ; is_state_10 = 1010 (PULL_READ - read from stack for PLA)
+  is_state_10 = and(and(and(state3, ns2), state1), ns0)
+
+  ; is_state_11 = 1011 (PUSH_DEC - decrement SP after push)
+  is_state_11 = and(and(and(state3, ns2), state1), state0)
   
   ; ==========================================
   ; Instruction Register
@@ -102,6 +120,7 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; Load A during FETCH_IMM when instruction is LDA, ADC, SBC, AND, ORA, EOR (NOT CMP)
   ; CMP sets flags like SBC but doesn't store result
   ; Load A during DECODE when instruction is TXA or TYA (implied addressing)
+  ; Load A during PULL_READ (state 10) when instruction is PLA
   is_arith_op = or(dec.is_adc, dec.is_sbc)
   is_logic_op = or(or(dec.is_and, dec.is_ora), dec.is_eor)
   is_alu_op = or(is_arith_op, is_logic_op)
@@ -109,11 +128,14 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   is_txa_tya = or(dec.is_txa, dec.is_tya)
   a_load_imm = and(is_state_2, or(dec.is_lda, is_alu_op))
   a_load_transfer = and(is_state_1, is_txa_tya)
-  a_load = or(a_load_imm, a_load_transfer)
+  a_load_pla = is_state_10  ; PLA loads A from stack in state 10
+  a_load = or(or(a_load_imm, a_load_transfer), a_load_pla)
   ; Mux between data_in (for LDA), alu.result (for ADC/SBC/AND/ORA/EOR), X (for TXA), Y (for TYA)
   a_src_imm = mux8(data_in, alu.result, is_alu_op)
   a_src_xy = mux8(x_out, y_out, dec.is_tya)
-  a_data_src = mux8(a_src_imm, a_src_xy, is_txa_tya)
+  a_src_imm_or_xy = mux8(a_src_imm, a_src_xy, is_txa_tya)
+  ; For PLA (state 10), always use data_in directly
+  a_data_src = mux8(a_src_imm_or_xy, data_in, a_load_pla)
   a_out = register8(a_data_src, a_load, clk)
 
   ; ==========================================
@@ -164,6 +186,46 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   y_out = register8(y_data_src, y_load, clk)
 
   ; ==========================================
+  ; Stack Pointer (SP) Register
+  ; ==========================================
+  ; SP starts at 0xFF on reset (points to next free location)
+  ; Stack is at $0100-$01FF (page 1)
+  ; PHA: write A to $0100+SP, then SP-- (decrement after push)
+  ; PLA: SP++, then read from $0100+SP (increment before pull)
+  ;
+  ; SP is updated:
+  ;   - On PHA in STATE_PUSH: SP = SP - 1 (after writing)
+  ;   - On PLA in STATE_PULL_INC: SP = SP + 1 (before reading)
+  sp_inc_addend = concat(0, 0, 0, 0, 0, 0, 0, 1)  ; 0x01
+  sp_dec_addend = concat(1, 1, 1, 1, 1, 1, 1, 1)  ; 0xFF (-1)
+
+  ; Compute SP+1 and SP-1
+  sp_inc_result = adder8(sp_out, sp_inc_addend, 0)
+  sp_dec_result = adder8(sp_out, sp_dec_addend, 0)
+
+  ; Load SP: decrement during STATE_PUSH_DEC (after write), increment during STATE_PULL_INC (before read)
+  sp_load_push = is_state_11  ; Decrement AFTER push write (in state 11, not 8)
+  sp_load_pull = is_state_9   ; Increment before pull read
+  sp_load = or(sp_load_push, sp_load_pull)
+
+  ; Select between increment and decrement
+  sp_next = mux8(sp_dec_result.sum, sp_inc_result.sum, sp_load_pull)
+
+  ; On reset, SP should be 0xFF
+  ; We achieve this by loading 0xFF on reset
+  sp_reset_val = concat(1, 1, 1, 1, 1, 1, 1, 1)  ; 0xFF
+  sp_load_or_reset = or(sp_load, reset)
+  sp_data = mux8(sp_next, sp_reset_val, reset)
+  sp_out = register8(sp_data, sp_load_or_reset, clk)
+
+  ; Stack address for memory access: $0100 + SP
+  ; For PHA: use current SP (before decrement)
+  ; For PLA: use incremented SP (after increment in state 9)
+  stack_addr_lo = sp_out
+  stack_addr_hi = concat(0, 0, 0, 0, 0, 0, 0, 1)  ; 0x01
+  stack_addr = concat(stack_addr_hi, stack_addr_lo)
+
+  ; ==========================================
   ; ALU and Flags
   ; ==========================================
   ; ALU always computes (used when needed)
@@ -211,6 +273,7 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ;   - DECODE (state 1) for INX/DEX/INY/DEY (implied mode, single-cycle)
   ;   - DECODE (state 1) for TAX/TAY/TXA/TYA (implied mode, single-cycle)
   ;   - FETCH_IMM (state 2) for LDA/LDX/LDY (after loading data_in)
+  ;   - PULL_READ (state 10) for PLA (after loading data_in from stack)
   is_inc_dec_xy = or(is_inx_dex, is_iny_dey)
   is_transfer = or(or(dec.is_tax, dec.is_tay), is_txa_tya)
   flags_load_alu = and(is_state_1, is_alu_or_cmp)
@@ -218,7 +281,8 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   flags_load_transfer = and(is_state_1, is_transfer)
   is_load_axy = or(or(dec.is_lda, dec.is_ldx), dec.is_ldy)
   flags_load_load = and(is_state_2, is_load_axy)
-  flags_load = or(or(or(flags_load_alu, flags_load_inc_dec), flags_load_transfer), flags_load_load)
+  flags_load_pla = is_state_10  ; PLA sets Z/N based on pulled value
+  flags_load = or(or(or(or(flags_load_alu, flags_load_inc_dec), flags_load_transfer), flags_load_load), flags_load_pla)
 
   ; Compute Z and N flags from data_in for LDA/LDX/LDY
   ; Z = 1 if data_in is all zeros (use NOR reduction)
@@ -314,9 +378,10 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; Then: mux with transfer instructions
   flag_z_from_alu_xy_transfer = mux(flag_z_from_alu_or_xy, flag_z_from_transfer, is_transfer)
   flag_n_from_alu_xy_transfer = mux(flag_n_from_alu_or_xy, flag_n_from_transfer, is_transfer)
-  ; Finally: mux with data_in for load instructions
-  flag_z_src = mux(flag_z_from_alu_xy_transfer, data_in_z, flags_load_load)
-  flag_n_src = mux(flag_n_from_alu_xy_transfer, data_in_n, flags_load_load)
+  ; Finally: mux with data_in for load instructions (LDA/LDX/LDY and PLA)
+  flags_load_from_data_in = or(flags_load_load, flags_load_pla)
+  flag_z_src = mux(flag_z_from_alu_xy_transfer, data_in_z, flags_load_from_data_in)
+  flag_n_src = mux(flag_n_from_alu_xy_transfer, data_in_n, flags_load_from_data_in)
 
   ; Individual flag registers - load when flags_load is high, clear on reset
   ; C flag: Updated by ADC, SBC, and CMP only (NOT logic ops, NOT INX/DEX)
@@ -380,9 +445,10 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; Skip PC increment flag: set when in EXEC states, cleared after DECODE
   ; The flag needs to persist through FETCH_OP and DECODE states
   ; Set when in EXEC (will be active next cycle when we enter FETCH_OP)
-  set_skip = or(is_state_5, is_state_6)
-  ; Clear after DECODE (when in FETCH_IMM, FETCH_LO, or HALTED), OR on reset
-  clear_skip_states = or(or(is_state_2, is_state_3), is_state_7)
+  ; Include PUSH_DEC (11) and PULL_READ (10) as they also return to FETCH_OP
+  set_skip = or(or(is_state_5, is_state_6), or(is_state_11, is_state_10))
+  ; Clear after DECODE (when in FETCH_IMM, FETCH_LO, HALTED, or PULL_INC), OR on reset
+  clear_skip_states = or(or(or(is_state_2, is_state_3), is_state_7), is_state_9)
   clear_skip = or(clear_skip_states, reset)
   ; Keep current value if neither setting nor clearing
   keep_skip = and(not(set_skip), not(clear_skip))
@@ -406,85 +472,114 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   pc_out = pc(clk, reset, pc_load, pc_inc, pc_target)
   
   ; ==========================================
-  ; Next State Logic
+  ; Next State Logic (4-bit state machine)
   ; ==========================================
-  ; Default: stay in same state (will be overridden)
-  
-  ; From FETCH_OP (0) -> DECODE (1): next = 001
+  ; States: 0=FETCH_OP, 1=DECODE, 2=FETCH_IMM, 3=FETCH_LO, 4=FETCH_HI,
+  ;         5=EXEC_ST, 6=EXEC_JMP, 7=HALTED, 8=PUSH, 9=PULL_INC, 10=PULL_READ
+
+  ; From FETCH_OP (0) -> DECODE (1): next = 0001
   from_0_to_1 = is_state_0
-  
+
   ; From DECODE (1):
-  ;   if LDA/LDX/LDY/ADC/CMP/BEQ/BNE -> FETCH_IMM (2): next = 010
-  ;   if STA/STX/STY/JMP -> FETCH_LO (3): next = 011
-  ;   if INX/DEX/INY/DEY/TAX/TAY/TXA/TYA -> FETCH_OP (0): next = 000 (implied, single-cycle)
-  ;   if HLT -> HALTED (7): next = 111
+  ;   if LDA/LDX/LDY/ADC/CMP/BEQ/BNE/AND/ORA/EOR/SBC -> FETCH_IMM (2): next = 0010
+  ;   if STA/STX/STY/JMP -> FETCH_LO (3): next = 0011
+  ;   if INX/DEX/INY/DEY/TAX/TAY/TXA/TYA -> FETCH_OP (0): next = 0000 (implied, single-cycle)
+  ;   if PHA -> PUSH (8): next = 1000
+  ;   if PLA -> PULL_INC (9): next = 1001
+  ;   if HLT -> HALTED (7): next = 0111
   needs_byte = or(dec.needs_imm, dec.needs_rel)
   from_1_to_2 = and(is_state_1, needs_byte)
   from_1_to_3 = and(is_state_1, dec.needs_addr)
   is_implied_single_cycle = or(is_inc_dec_xy, is_transfer)
   from_1_to_0 = and(is_state_1, is_implied_single_cycle)
   from_1_to_7 = and(is_state_1, dec.is_hlt)
-  
-  ; From FETCH_IMM (2) -> FETCH_OP (0): next = 000
+  from_1_to_8 = and(is_state_1, dec.is_pha)
+  from_1_to_9 = and(is_state_1, dec.is_pla)
+
+  ; From FETCH_IMM (2) -> FETCH_OP (0): next = 0000
   from_2_to_0 = is_state_2
-  
-  ; From FETCH_LO (3) -> FETCH_HI (4): next = 100
+
+  ; From FETCH_LO (3) -> FETCH_HI (4): next = 0100
   from_3_to_4 = is_state_3
-  
+
   ; From FETCH_HI (4):
-  ;   if STA/STX/STY -> EXEC_ST (5): next = 101
-  ;   if JMP -> EXEC_JMP (6): next = 110
+  ;   if STA/STX/STY -> EXEC_ST (5): next = 0101
+  ;   if JMP -> EXEC_JMP (6): next = 0110
   is_store = or(or(dec.is_sta, dec.is_stx), dec.is_sty)
   from_4_to_5 = and(is_state_4, is_store)
   from_4_to_6 = and(is_state_4, dec.is_jmp)
 
-  ; From EXEC_ST (5) -> FETCH_OP (0): next = 000
-  ; (PC already points to next instruction, skip increment via prev_was_exec)
+  ; From EXEC_ST (5) -> FETCH_OP (0): next = 0000
   from_5_to_0 = is_state_5
 
-  ; From EXEC_JMP (6) -> FETCH_OP (0): next = 000
-  ; (PC now points to jump target, fetch from there)
+  ; From EXEC_JMP (6) -> FETCH_OP (0): next = 0000
   from_6_to_0 = is_state_6
-  
-  ; HALTED (7) stays at 7: next = 111
+
+  ; HALTED (7) stays at 7: next = 0111
   stay_at_7 = is_state_7
-  
+
+  ; From PUSH (8) -> PUSH_DEC (11): next = 1011 (write done, now decrement SP)
+  from_8_to_11 = is_state_8
+
+  ; From PULL_INC (9) -> PULL_READ (10): next = 1010 (SP incremented, now read)
+  from_9_to_10 = is_state_9
+
+  ; From PULL_READ (10) -> FETCH_OP (0): next = 0000 (PLA done)
+  from_10_to_0 = is_state_10
+
+  ; From PUSH_DEC (11) -> FETCH_OP (0): next = 0000 (SP decremented, PHA done)
+  from_11_to_0 = is_state_11
+
   ; Calculate next state bits
-  ; next_state0 = 1 when going to state 1, 3, 5, or 7
+  ; Bit 0: set for states 1, 3, 5, 7, 9, 11
   goto_1 = from_0_to_1
-  goto_odd = or(or(goto_1, from_1_to_3), or(from_4_to_5, stay_at_7))
-  set_bit_0 = or(goto_odd, from_1_to_7)
-
-  ; next_state1 = 1 when going to state 2, 3, 6, or 7
-  goto_2_3 = or(from_1_to_2, from_1_to_3)
-  goto_6_7 = or(from_4_to_6, or(from_1_to_7, stay_at_7))
-  set_bit_1 = or(goto_2_3, goto_6_7)
-
-  ; next_state2 = 1 when going to state 4, 5, 6, or 7
-  goto_4 = from_3_to_4
-  goto_5_6 = or(from_4_to_5, from_4_to_6)
+  goto_3 = from_1_to_3
+  goto_5 = from_4_to_5
   goto_7 = or(from_1_to_7, stay_at_7)
-  set_bit_2 = or(or(goto_4, goto_5_6), goto_7)
-  
+  goto_9 = from_1_to_9
+  goto_11 = from_8_to_11
+  set_bit_0 = or(or(or(or(goto_1, goto_3), or(goto_5, goto_7)), goto_9), goto_11)
+
+  ; Bit 1: set for states 2, 3, 6, 7, 10, 11
+  goto_2 = from_1_to_2
+  goto_6 = from_4_to_6
+  goto_10 = from_9_to_10
+  set_bit_1 = or(or(or(or(goto_2, goto_3), or(goto_6, goto_7)), goto_10), goto_11)
+
+  ; Bit 2: set for states 4, 5, 6, 7
+  goto_4 = from_3_to_4
+  set_bit_2 = or(or(goto_4, goto_5), or(goto_6, goto_7))
+
+  ; Bit 3: set for states 8, 9, 10, 11
+  goto_8 = from_1_to_8
+  set_bit_3 = or(or(or(goto_8, goto_9), goto_10), goto_11)
+
   ; Apply reset (goes to state 0)
   next_state0 = and(set_bit_0, not(reset))
   next_state1 = and(set_bit_1, not(reset))
   next_state2 = and(set_bit_2, not(reset))
+  next_state3 = and(set_bit_3, not(reset))
   
   ; ==========================================
   ; Output Logic
   ; ==========================================
-  ; Address bus: PC during fetch, operand_addr during EXEC_ST
+  ; Address bus:
+  ;   - PC during fetch states (0, 1, 2, 3, 4)
+  ;   - operand_addr during EXEC_ST (5)
+  ;   - stack_addr during PUSH (8), PULL_INC (9), PULL_READ (10)
   operand_addr = concat(addr_hi, addr_lo)
-  addr = mux16(pc_out, operand_addr, is_state_5)
+  is_stack_op = or(or(is_state_8, is_state_9), is_state_10)
+  addr_store_or_stack = mux16(operand_addr, stack_addr, is_stack_op)
+  is_addr_not_pc = or(is_state_5, is_stack_op)
+  addr = mux16(pc_out, addr_store_or_stack, is_addr_not_pc)
 
-  ; Data out: A register (for STA), X register (for STX), or Y register (for STY)
+  ; Data out: A register (for STA/PHA), X register (for STX), or Y register (for STY)
   ; Use nested mux: first select between A and X, then between that and Y
   data_out_ax = mux8(a_out, x_out, dec.is_stx)
   data_out = mux8(data_out_ax, y_out, dec.is_sty)
 
-  ; Memory write: only during EXEC_ST
-  mem_write = is_state_5
+  ; Memory write: during EXEC_ST (5) or PUSH (8)
+  mem_write = or(is_state_5, is_state_8)
 
   ; Halted output
   halted = is_state_7

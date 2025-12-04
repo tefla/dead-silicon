@@ -1,5 +1,5 @@
 ; Instruction Decoder for Minimal CPU
-; Decodes opcodes into control signals for 24 instructions
+; Decodes opcodes into control signals for 28 instructions
 ;
 ; Opcodes (authentic 6502):
 ;   0xA9 = LDA #imm (2 bytes) = 10101001
@@ -15,6 +15,8 @@
 ;   0x8E = STX $addr (3 bytes) = 10001110
 ;   0x8C = STY $addr (3 bytes) = 10001100
 ;   0x4C = JMP $addr (3 bytes) = 01001100
+;   0x20 = JSR $addr (3 bytes) = 00100000
+;   0x60 = RTS (1 byte) = 01100000
 ;   0xF0 = BEQ rel (2 bytes) = 11110000
 ;   0xD0 = BNE rel (2 bytes) = 11010000
 ;   0xE8 = INX (1 byte) = 11101000
@@ -25,6 +27,8 @@
 ;   0xA8 = TAY (1 byte) = 10101000
 ;   0x8A = TXA (1 byte) = 10001010
 ;   0x98 = TYA (1 byte) = 10011000
+;   0x48 = PHA (1 byte) = 01001000
+;   0x68 = PLA (1 byte) = 01101000
 ;   0x02 = HLT (1 byte) = 00000010
 ;
 ; Inputs:
@@ -54,13 +58,17 @@
 ;   is_tay    - Opcode is TAY
 ;   is_txa    - Opcode is TXA
 ;   is_tya    - Opcode is TYA
+;   is_pha    - Opcode is PHA
+;   is_pla    - Opcode is PLA
+;   is_jsr    - Opcode is JSR
+;   is_rts    - Opcode is RTS
 ;   is_hlt    - Opcode is HLT
 ;   needs_imm - Instruction needs immediate operand (1 byte)
 ;   needs_addr - Instruction needs address operand (2 bytes)
 ;   needs_rel - Instruction needs relative offset (1 signed byte)
 ;   is_implied - Instruction has no operand (1 byte total)
 
-module decoder(opcode:8) -> (is_lda, is_ldx, is_ldy, is_adc, is_sbc, is_cmp, is_and, is_ora, is_eor, is_sta, is_stx, is_sty, is_jmp, is_beq, is_bne, is_inx, is_dex, is_iny, is_dey, is_tax, is_tay, is_txa, is_tya, is_hlt, needs_imm, needs_addr, needs_rel, is_implied):
+module decoder(opcode:8) -> (is_lda, is_ldx, is_ldy, is_adc, is_sbc, is_cmp, is_and, is_ora, is_eor, is_sta, is_stx, is_sty, is_jmp, is_jsr, is_rts, is_beq, is_bne, is_inx, is_dex, is_iny, is_dey, is_tax, is_tay, is_txa, is_tya, is_pha, is_pla, is_hlt, needs_imm, needs_addr, needs_rel, is_implied):
   ; We need to compare opcode with specific values
   ; XOR with target: if match, all bits will be 0
   ; Then NOR-reduce to check if all bits are 0
@@ -525,20 +533,98 @@ module decoder(opcode:8) -> (is_lda, is_ldx, is_ldy, is_adc, is_sbc, is_cmp, is_
   tya_any = or(tya_any0123, tya_any4567)
   is_tya = not(tya_any)
 
+  ; PHA = 0x48 = 01001000 binary
+  ; opcode[0]=0, [1]=0, [2]=0, [3]=1, [4]=0, [5]=0, [6]=1, [7]=0
+  pha_b0 = xor(opcode[0], 0)
+  pha_b1 = xor(opcode[1], 0)
+  pha_b2 = xor(opcode[2], 0)
+  pha_b3 = xor(opcode[3], 1)
+  pha_b4 = xor(opcode[4], 0)
+  pha_b5 = xor(opcode[5], 0)
+  pha_b6 = xor(opcode[6], 1)
+  pha_b7 = xor(opcode[7], 0)
+  pha_any01 = or(pha_b0, pha_b1)
+  pha_any23 = or(pha_b2, pha_b3)
+  pha_any45 = or(pha_b4, pha_b5)
+  pha_any67 = or(pha_b6, pha_b7)
+  pha_any0123 = or(pha_any01, pha_any23)
+  pha_any4567 = or(pha_any45, pha_any67)
+  pha_any = or(pha_any0123, pha_any4567)
+  is_pha = not(pha_any)
+
+  ; PLA = 0x68 = 01101000 binary
+  ; opcode[0]=0, [1]=0, [2]=0, [3]=1, [4]=0, [5]=1, [6]=1, [7]=0
+  pla_b0 = xor(opcode[0], 0)
+  pla_b1 = xor(opcode[1], 0)
+  pla_b2 = xor(opcode[2], 0)
+  pla_b3 = xor(opcode[3], 1)
+  pla_b4 = xor(opcode[4], 0)
+  pla_b5 = xor(opcode[5], 1)
+  pla_b6 = xor(opcode[6], 1)
+  pla_b7 = xor(opcode[7], 0)
+  pla_any01 = or(pla_b0, pla_b1)
+  pla_any23 = or(pla_b2, pla_b3)
+  pla_any45 = or(pla_b4, pla_b5)
+  pla_any67 = or(pla_b6, pla_b7)
+  pla_any0123 = or(pla_any01, pla_any23)
+  pla_any4567 = or(pla_any45, pla_any67)
+  pla_any = or(pla_any0123, pla_any4567)
+  is_pla = not(pla_any)
+
+  ; JSR $addr = 0x20 = 00100000 binary
+  ; opcode[0]=0, [1]=0, [2]=0, [3]=0, [4]=0, [5]=1, [6]=0, [7]=0
+  jsr_b0 = xor(opcode[0], 0)
+  jsr_b1 = xor(opcode[1], 0)
+  jsr_b2 = xor(opcode[2], 0)
+  jsr_b3 = xor(opcode[3], 0)
+  jsr_b4 = xor(opcode[4], 0)
+  jsr_b5 = xor(opcode[5], 1)
+  jsr_b6 = xor(opcode[6], 0)
+  jsr_b7 = xor(opcode[7], 0)
+  jsr_any01 = or(jsr_b0, jsr_b1)
+  jsr_any23 = or(jsr_b2, jsr_b3)
+  jsr_any45 = or(jsr_b4, jsr_b5)
+  jsr_any67 = or(jsr_b6, jsr_b7)
+  jsr_any0123 = or(jsr_any01, jsr_any23)
+  jsr_any4567 = or(jsr_any45, jsr_any67)
+  jsr_any = or(jsr_any0123, jsr_any4567)
+  is_jsr = not(jsr_any)
+
+  ; RTS = 0x60 = 01100000 binary
+  ; opcode[0]=0, [1]=0, [2]=0, [3]=0, [4]=0, [5]=1, [6]=1, [7]=0
+  rts_b0 = xor(opcode[0], 0)
+  rts_b1 = xor(opcode[1], 0)
+  rts_b2 = xor(opcode[2], 0)
+  rts_b3 = xor(opcode[3], 0)
+  rts_b4 = xor(opcode[4], 0)
+  rts_b5 = xor(opcode[5], 1)
+  rts_b6 = xor(opcode[6], 1)
+  rts_b7 = xor(opcode[7], 0)
+  rts_any01 = or(rts_b0, rts_b1)
+  rts_any23 = or(rts_b2, rts_b3)
+  rts_any45 = or(rts_b4, rts_b5)
+  rts_any67 = or(rts_b6, rts_b7)
+  rts_any0123 = or(rts_any01, rts_any23)
+  rts_any4567 = or(rts_any45, rts_any67)
+  rts_any = or(rts_any0123, rts_any4567)
+  is_rts = not(rts_any)
+
   ; needs_imm: LDA, LDX, LDY, ADC, SBC, CMP, AND, ORA, EOR need immediate byte
   is_logic_op = or(or(is_and, is_ora), is_eor)
   is_load_imm = or(or(is_lda, is_ldx), is_ldy)
   needs_imm = or(or(or(or(is_load_imm, is_adc), is_sbc), is_cmp), is_logic_op)
 
-  ; needs_addr: STA, STX, STY, and JMP need 16-bit address
+  ; needs_addr: STA, STX, STY, JMP, and JSR need 16-bit address
   is_store = or(or(is_sta, is_stx), is_sty)
-  needs_addr = or(is_store, is_jmp)
+  is_jump_or_call = or(is_jmp, is_jsr)
+  needs_addr = or(is_store, is_jump_or_call)
 
   ; needs_rel: BEQ and BNE need relative offset (1 signed byte)
   needs_rel = or(is_beq, is_bne)
 
-  ; is_implied: HLT, INX, DEX, INY, DEY, TAX, TAY, TXA, TYA have no operand
+  ; is_implied: HLT, INX, DEX, INY, DEY, TAX, TAY, TXA, TYA, PHA, PLA, RTS have no operand
   is_inc_dec_x = or(is_inx, is_dex)
   is_inc_dec_y = or(is_iny, is_dey)
   is_transfer = or(or(is_tax, is_tay), or(is_txa, is_tya))
-  is_implied = or(or(or(is_hlt, is_inc_dec_x), is_inc_dec_y), is_transfer)
+  is_stack = or(is_pha, is_pla)
+  is_implied = or(or(or(or(or(is_hlt, is_inc_dec_x), is_inc_dec_y), is_transfer), is_stack), is_rts)

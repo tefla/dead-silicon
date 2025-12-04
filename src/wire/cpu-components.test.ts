@@ -3135,7 +3135,7 @@ module test_decoder(opcode:8) -> (is_lda, is_sta, is_jmp, is_hlt, needs_imm, nee
     const testModule = `
 ${cpuStdlib}
 
-module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, a_out:8, x_out:8, y_out:8, flags_out:4, pc_out:16, state_out:3):
+module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, a_out:8, x_out:8, y_out:8, sp_out:8, flags_out:4, pc_out:16, state_out:4):
   cpu = cpu_minimal(clk, reset, data_in)
   addr = cpu.addr
   data_out = cpu.data_out
@@ -3144,6 +3144,7 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
   a_out = cpu.a_out
   x_out = cpu.x_out
   y_out = cpu.y_out
+  sp_out = cpu.sp_out
   flags_out = cpu.flags_out
   pc_out = cpu.pc_out
   state_out = cpu.state_out
@@ -3158,6 +3159,7 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
     }
 
     // Helper to run a program (memory as array, returns final state)
+    // Stack is at $0100-$01FF, handled by stackMem array
     function runProgram(sim: ReturnType<typeof createSimulator> extends { ok: true, simulator: infer S } ? S : never, memory: number[], maxCycles: number = 50) {
       // Reset CPU
       sim.setInput('reset', 1)
@@ -3167,24 +3169,39 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
 
       let cycles = 0
       const writes: { addr: number; value: number }[] = []
+      const stackMem = new Array(256).fill(0)  // Stack memory at $0100-$01FF
 
       while (cycles < maxCycles && sim.getOutput('halted') === 0) {
         // CPU outputs address
         const addr = sim.getOutput('addr')
 
-        // Provide data from memory
-        const data = addr < memory.length ? memory[addr] : 0
+        // Provide data from memory (program or stack)
+        let data: number
+        if (addr >= 0x0100 && addr <= 0x01FF) {
+          // Stack area
+          data = stackMem[addr - 0x0100]
+        } else if (addr < memory.length) {
+          data = memory[addr]
+        } else {
+          data = 0
+        }
         sim.setInput('data_in', data)
+
+        // Capture write info BEFORE clock edge (synchronous write semantics)
+        const memWritePending = sim.getOutput('mem_write') === 1
+        const writeAddr = sim.getOutput('addr')
+        const writeValue = sim.getOutput('data_out')
 
         // Clock
         clockCycle(sim)
 
-        // Check for memory write
-        if (sim.getOutput('mem_write') === 1) {
-          writes.push({
-            addr: sim.getOutput('addr'),
-            value: sim.getOutput('data_out')
-          })
+        // Commit the write that was set up before the clock edge
+        if (memWritePending) {
+          writes.push({ addr: writeAddr, value: writeValue })
+          // Update stack memory if writing to stack area
+          if (writeAddr >= 0x0100 && writeAddr <= 0x01FF) {
+            stackMem[writeAddr - 0x0100] = writeValue
+          }
         }
 
         cycles++
@@ -3196,10 +3213,12 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
         a: sim.getOutput('a_out'),
         x: sim.getOutput('x_out'),
         y: sim.getOutput('y_out'),
+        sp: sim.getOutput('sp_out'),
         flags: sim.getOutput('flags_out'),
         pc: sim.getOutput('pc_out'),
         state: sim.getOutput('state_out'),
-        writes
+        writes,
+        stackMem
       }
     }
 
@@ -5767,6 +5786,235 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
         expect(final.halted).toBe(true)
         expect(final.y).toBe(0x55)
         expect(final.a).toBe(0x55)
+      })
+    })
+
+    // ==========================================
+    // Stack Pointer Tests
+    // ==========================================
+    describe('Stack Pointer', () => {
+      it('SP initializes to 0xFF on reset', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: HLT immediately
+        const program = [0x02]
+        const final = runProgram(sim, program, 10)
+
+        expect(final.halted).toBe(true)
+        expect(final.sp).toBe(0xFF)
+      })
+    })
+
+    // ==========================================
+    // PHA - Push Accumulator (0x48)
+    // ==========================================
+    describe('PHA instruction', () => {
+      it('pushes A to stack and decrements SP', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$42, PHA, HLT
+        const program = [
+          0xA9, 0x42,  // LDA #$42
+          0x48,        // PHA
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 25)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x42)
+        expect(final.sp).toBe(0xFE)  // SP decremented from 0xFF to 0xFE
+        // Check that A was written to stack at $01FF
+        const stackWrite = final.writes.find(w => w.addr === 0x01FF)
+        expect(stackWrite).toBeDefined()
+        expect(stackWrite?.value).toBe(0x42)
+      })
+
+      it('multiple PHA pushes in sequence', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$11, PHA, LDA #$22, PHA, LDA #$33, PHA, HLT
+        const program = [
+          0xA9, 0x11,  // LDA #$11
+          0x48,        // PHA
+          0xA9, 0x22,  // LDA #$22
+          0x48,        // PHA
+          0xA9, 0x33,  // LDA #$33
+          0x48,        // PHA
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 50)
+
+        expect(final.halted).toBe(true)
+        expect(final.sp).toBe(0xFC)  // SP decremented 3 times: FF -> FE -> FD -> FC
+        // Check stack writes
+        expect(final.writes).toContainEqual({ addr: 0x01FF, value: 0x11 })
+        expect(final.writes).toContainEqual({ addr: 0x01FE, value: 0x22 })
+        expect(final.writes).toContainEqual({ addr: 0x01FD, value: 0x33 })
+      })
+
+      it('PHA does not affect A register', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$55, PHA, HLT
+        const program = [
+          0xA9, 0x55,  // LDA #$55
+          0x48,        // PHA
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 25)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x55)  // A unchanged
+      })
+
+      it('PHA does not affect flags', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$00 (sets Z), PHA, HLT
+        const program = [
+          0xA9, 0x00,  // LDA #$00 (Z=1)
+          0x48,        // PHA (should not change flags)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 25)
+
+        expect(final.halted).toBe(true)
+        expect(final.flags & 0b0010).toBe(0b0010)  // Z still set
+      })
+    })
+
+    // ==========================================
+    // PLA - Pull Accumulator (0x68)
+    // ==========================================
+    describe('PLA instruction', () => {
+      it('pulls A from stack and increments SP', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$42, PHA, LDA #$00, PLA, HLT
+        const program = [
+          0xA9, 0x42,  // LDA #$42
+          0x48,        // PHA (push $42 to stack)
+          0xA9, 0x00,  // LDA #$00 (clear A)
+          0x68,        // PLA (pull $42 from stack)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 35)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x42)  // A restored from stack
+        expect(final.sp).toBe(0xFF)  // SP back to original
+      })
+
+      it('PLA sets zero flag when pulling zero', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$00, PHA, LDA #$FF, PLA, HLT
+        const program = [
+          0xA9, 0x00,  // LDA #$00
+          0x48,        // PHA (push $00)
+          0xA9, 0xFF,  // LDA #$FF (A=$FF, clears Z)
+          0x68,        // PLA (A=$00, sets Z)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 35)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x00)
+        expect(final.flags & 0b0010).toBe(0b0010)  // Zero flag set
+      })
+
+      it('PLA sets negative flag when pulling negative', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$80, PHA, LDA #$00, PLA, HLT
+        const program = [
+          0xA9, 0x80,  // LDA #$80 (negative)
+          0x48,        // PHA (push $80)
+          0xA9, 0x00,  // LDA #$00 (A=$00, clears N)
+          0x68,        // PLA (A=$80, sets N)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 35)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x80)
+        expect(final.flags & 0b0100).toBe(0b0100)  // Negative flag set
+      })
+
+      it('multiple PHA/PLA preserves order (LIFO)', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: Push 3 values, pull them in reverse order
+        // Push $11, $22, $33, then pull should get $33, $22, $11
+        const program = [
+          0xA9, 0x11,  // LDA #$11
+          0x48,        // PHA
+          0xA9, 0x22,  // LDA #$22
+          0x48,        // PHA
+          0xA9, 0x33,  // LDA #$33
+          0x48,        // PHA
+          0x68,        // PLA -> A = $33
+          0xAA,        // TAX (save $33 in X)
+          0x68,        // PLA -> A = $22
+          0xA8,        // TAY (save $22 in Y)
+          0x68,        // PLA -> A = $11
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 60)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x11)  // Last pulled
+        expect(final.x).toBe(0x33)  // First pulled
+        expect(final.y).toBe(0x22)  // Second pulled
+        expect(final.sp).toBe(0xFF)  // Back to start
+      })
+
+      it('PLA clears negative flag when pulling positive', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$7F, PHA, LDA #$80, PLA, HLT
+        const program = [
+          0xA9, 0x7F,  // LDA #$7F (positive)
+          0x48,        // PHA
+          0xA9, 0x80,  // LDA #$80 (sets N)
+          0x68,        // PLA (A=$7F, clears N)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 35)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x7F)
+        expect(final.flags & 0b0100).toBe(0)  // Negative flag clear
       })
     })
   })
