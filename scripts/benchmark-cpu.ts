@@ -95,6 +95,7 @@ const typedArraySpeed = runBenchmark('typed-array')
 const jitSpeed = runBenchmark('jit')
 const levelizedSpeed = runBenchmark('levelized')
 const jit2Speed = runBenchmark('jit2')
+const wasmSpeed = runBenchmark('wasm')
 
 console.log('--- Results ---')
 console.log(`Interpreter: 1.00x (${interpreterSpeed.toFixed(0)} Hz)`)
@@ -102,3 +103,4 @@ console.log(`TypedArray:  ${(typedArraySpeed / interpreterSpeed).toFixed(2)}x ($
 console.log(`JIT v1:      ${(jitSpeed / interpreterSpeed).toFixed(2)}x (${jitSpeed.toFixed(0)} Hz)`)
 console.log(`Levelized:   ${(levelizedSpeed / interpreterSpeed).toFixed(2)}x (${levelizedSpeed.toFixed(0)} Hz)`)
 console.log(`JIT v2:      ${(jit2Speed / interpreterSpeed).toFixed(2)}x (${jit2Speed.toFixed(0)} Hz)`)
+console.log(`WASM:        ${(wasmSpeed / interpreterSpeed).toFixed(2)}x (${wasmSpeed.toFixed(0)} Hz)`)
