@@ -69,8 +69,12 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; ==========================================
   ; Instruction Register
   ; ==========================================
-  ; Latch opcode during FETCH_OP state
-  ir = register8(data_in, is_state_0, clk)
+  ; Latch opcode during FETCH_OP state (normal case) but NOT when skipping
+  ; When skipping, load during DECODE instead (one cycle later with correct data)
+  ir_load_fetch = and(is_state_0, not(skip_pc_inc))
+  ir_load_decode_after_skip = and(is_state_1, skip_pc_inc)
+  ir_load = or(ir_load_fetch, ir_load_decode_after_skip)
+  ir = register8(data_in, ir_load, clk)
   
   ; Decode the instruction
   dec = decoder(ir)
@@ -96,20 +100,23 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; Build 16-bit address from latches (for JMP)
   pc_target = concat(addr_hi, addr_lo)
 
-  ; Skip PC increment flag: set when in EXEC states, cleared after leaving FETCH_OP
-  ; The flag needs to persist through the FETCH_OP state
+  ; Skip PC increment flag: set when in EXEC states, cleared after DECODE
+  ; The flag needs to persist through FETCH_OP and DECODE states
   ; Set when in EXEC (will be active next cycle when we enter FETCH_OP)
   set_skip = or(is_state_5, is_state_6)
-  ; Clear when in DECODE after FETCH_OP (one state later), OR on reset
-  clear_skip = or(is_state_1, reset)
+  ; Clear after DECODE (when in FETCH_IMM, FETCH_LO, or HALTED), OR on reset
+  clear_skip_states = or(or(is_state_2, is_state_3), is_state_7)
+  clear_skip = or(clear_skip_states, reset)
   ; Keep current value if neither setting nor clearing
   keep_skip = and(not(set_skip), not(clear_skip))
   next_skip_val = or(set_skip, and(skip_pc_inc, keep_skip))
   skip_pc_inc = dff(next_skip_val, clk)
 
   ; PC increment during fetch states, but NOT in FETCH_OP if skip flag is set
+  ; When skipping FETCH_OP increment, increment during DECODE instead (when loading IR)
   inc_in_fetch_op = and(is_state_0, not(skip_pc_inc))
-  pc_inc = or(or(inc_in_fetch_op, is_state_2), or(is_state_3, is_state_4))
+  inc_in_decode_after_skip = and(is_state_1, skip_pc_inc)
+  pc_inc = or(or(or(inc_in_fetch_op, inc_in_decode_after_skip), is_state_2), or(is_state_3, is_state_4))
 
   ; PC load during JMP execute
   pc_load = is_state_6
