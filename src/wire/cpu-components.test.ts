@@ -14,8 +14,9 @@ const register16Wire = readFileSync(resolve(__dirname, '../assets/wire/register1
 const adder16Wire = readFileSync(resolve(__dirname, '../assets/wire/adder16.wire'), 'utf-8')
 const mux8Wire = readFileSync(resolve(__dirname, '../assets/wire/mux8.wire'), 'utf-8')
 const mux16Wire = readFileSync(resolve(__dirname, '../assets/wire/mux16.wire'), 'utf-8')
+const inc16Wire = readFileSync(resolve(__dirname, '../assets/wire/inc16.wire'), 'utf-8')
 
-const stdlib = gatesWire + '\n' + arithmeticWire + '\n' + registersWire + '\n' + register16Wire + '\n' + adder16Wire + '\n' + mux8Wire + '\n' + mux16Wire
+const stdlib = gatesWire + '\n' + arithmeticWire + '\n' + registersWire + '\n' + register16Wire + '\n' + adder16Wire + '\n' + mux8Wire + '\n' + mux16Wire + '\n' + inc16Wire
 
 describe('16-bit Components', () => {
   describe('bit slicing and concat (sanity check)', () => {
@@ -560,6 +561,119 @@ module test_mux16(a:16, b:16, sel) -> out:16:
         sim.setInput('a', tc.a)
         sim.setInput('b', tc.b)
         sim.setInput('sel', tc.sel)
+        sim.step()
+        expect(sim.getOutput('out')).toBe(tc.expected)
+      }
+    })
+  })
+
+  describe('inc16', () => {
+    const testModule = `
+${stdlib}
+
+module test_inc16(in:16) -> out:16:
+  out = inc16(in)
+`
+
+    it('increments zero to one', () => {
+      const result = createSimulator(testModule, 'test_inc16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      sim.setInput('in', 0)
+      sim.step()
+      expect(sim.getOutput('out')).toBe(1)
+    })
+
+    it('increments simple values', () => {
+      const result = createSimulator(testModule, 'test_inc16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      const testCases = [
+        { input: 0x0001, expected: 0x0002 },
+        { input: 0x0010, expected: 0x0011 },
+        { input: 0x0100, expected: 0x0101 },
+        { input: 0x1000, expected: 0x1001 },
+        { input: 0x1234, expected: 0x1235 },
+      ]
+
+      for (const tc of testCases) {
+        sim.setInput('in', tc.input)
+        sim.step()
+        expect(sim.getOutput('out')).toBe(tc.expected)
+      }
+    })
+
+    it('handles carry from low byte to high byte', () => {
+      const result = createSimulator(testModule, 'test_inc16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      // 0x00FF + 1 = 0x0100 (carry from low to high byte)
+      sim.setInput('in', 0x00FF)
+      sim.step()
+      expect(sim.getOutput('out')).toBe(0x0100)
+
+      // 0x12FF + 1 = 0x1300
+      sim.setInput('in', 0x12FF)
+      sim.step()
+      expect(sim.getOutput('out')).toBe(0x1300)
+    })
+
+    it('wraps around at maximum value', () => {
+      const result = createSimulator(testModule, 'test_inc16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      // 0xFFFF + 1 = 0x0000 (16-bit overflow/wrap)
+      sim.setInput('in', 0xFFFF)
+      sim.step()
+      expect(sim.getOutput('out')).toBe(0x0000)
+    })
+
+    it('increments through a sequence', () => {
+      const result = createSimulator(testModule, 'test_inc16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      // Start at 0x0FFD and increment through carry boundary
+      let value = 0x0FFD
+      for (let i = 0; i < 5; i++) {
+        sim.setInput('in', value)
+        sim.step()
+        value = (value + 1) & 0xFFFF
+        expect(sim.getOutput('out')).toBe(value)
+      }
+      // Should have gone through: 0xFFD->0xFFE, 0xFFE->0xFFF, 0xFFF->0x1000, 0x1000->0x1001, 0x1001->0x1002
+    })
+
+    it('handles carry through multiple bit positions', () => {
+      const result = createSimulator(testModule, 'test_inc16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      const testCases = [
+        { input: 0x0FFF, expected: 0x1000 }, // carry through bits 0-11
+        { input: 0x1FFF, expected: 0x2000 }, // carry through bits 0-12
+        { input: 0x3FFF, expected: 0x4000 }, // carry through bits 0-13
+        { input: 0x7FFF, expected: 0x8000 }, // carry through bits 0-14
+      ]
+
+      for (const tc of testCases) {
+        sim.setInput('in', tc.input)
         sim.step()
         expect(sim.getOutput('out')).toBe(tc.expected)
       }
