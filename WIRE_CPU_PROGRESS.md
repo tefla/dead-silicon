@@ -56,55 +56,57 @@
 ## Phase 2: Minimal CPU - 4 Instructions (Days 3-4)
 
 ### 2.1: Instruction Fetch Unit
-- [ ] `fetch.wire` - PC + instruction register
-  - [ ] Write tests
-  - [ ] Implement module
-  - [ ] Verify all tests pass
+- [x] `fetch.wire` - PC + instruction register
+  - [x] Write tests
+  - [x] Implement module
+  - [x] Verify all tests pass
 
 ### 2.2: Instruction Decoder (Minimal)
-- [ ] `decode_minimal.wire` - Decode 4 instructions
-  - [ ] Write tests
-  - [ ] Implement module
-  - [ ] Verify all tests pass
+- [x] `decode_minimal.wire` - Decode 4 instructions
+  - [x] Write tests
+  - [x] Implement module
+  - [x] Verify all tests pass
 
 ### 2.3: Minimal CPU Integration
-- [ ] `cpu_minimal.wire` - 4-instruction CPU
-  - [ ] Write integration tests
-  - [ ] Implement state machine
-  - [ ] Test: LDA #imm
-  - [ ] Test: STA $addr
-  - [ ] Test: JMP $addr
-  - [ ] Test: HLT
-  - [ ] Test: Complete programs
+- [x] `cpu_minimal.wire` - 4-instruction CPU
+  - [x] Write integration tests
+  - [x] Implement state machine
+  - [x] Test: LDA #imm
+  - [x] Test: STA $addr
+  - [x] Test: JMP $addr
+  - [x] Test: HLT
+  - [x] Test: Complete programs
 
 **Phase 2 Complete When:**
-- [ ] Minimal CPU executes simple programs
-- [ ] ~80-100 tests passing
-- [ ] Ready to expand instruction set
+- [x] Minimal CPU executes simple programs
+- [x] ~80-100 tests passing
 
 ---
 
 ## Phase 3: Expand to 10 Instructions (Days 5-6)
 
-### 3.1: Extended Decoder
-- [ ] Add LDX, STX, ADD, SUB, JEQ, JNE
-- [ ] Write tests for new instructions
-- [ ] Verify all tests pass
+### 3.1: Foundation (Complete)
+- [x] Instruction set expanded to 7 ops: LDA, LDX, ADC, STA, JMP, BEQ, HLT
+- [x] Decoder updated with relative branch path
+- [x] X register and flag register (C, Z, N, V) integrated
+- [x] FETCH_REL state and ALU execution path implemented
+- [x] Tests passing for new instructions
 
-### 3.2: ALU Integration
-- [ ] Add flag register (C, Z, N, V)
-- [ ] Wire ALU to datapath
-- [ ] Test arithmetic operations
-- [ ] Test conditional branches
+### 3.2: Extended Operations (In Progress)
+- [ ] Add STX $addr
+- [ ] Add SBC #imm
+- [ ] Add BNE rel
+- [ ] Extend flag behaviors for SBC/branches
+- [ ] Write and verify tests
 
-### 3.3: X Register
-- [ ] Add X register to datapath
-- [ ] Test LDX/STX
-- [ ] Verify independence from A
+### 3.3: Polish & Extras
+- [ ] CMP #imm
+- [ ] INX, DEX
+- [ ] Additional branch/regression tests
 
 **Phase 3 Complete When:**
-- [ ] 10 instructions working
-- [ ] ~130-150 tests passing
+- [ ] 10+ instructions working
+- [ ] ~130-150 tests passing on CPU track (currently 1218 total project tests)
 - [ ] Arithmetic and branching work
 
 ---
@@ -194,9 +196,9 @@
 
 ## Current Status
 
-**Active Phase:** Phase 2
-**Current Task:** Phase 1 complete! Ready to build minimal CPU
-**Tests Passing:** 566 (122 CPU component tests) / ~250 target
+**Active Phase:** Phase 3 (instruction set expansion)
+**Current Task:** Phase 3.2 (STX, SBC, BNE)
+**Tests Passing:** 1218 total (includes 183 FPGA integration tests)
 **Last Updated:** 2025-12-04
 
 ### Recent Accomplishments

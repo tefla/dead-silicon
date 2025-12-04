@@ -2,38 +2,40 @@
 
 **Goal**: Expand from 4 to 10+ instructions with ALU, flags, and X register
 
-**Current State**: cpu_minimal.wire has 4 instructions (LDA, STA, JMP, HLT) - 1199/1199 tests passing
+**Current State**: cpu_minimal.wire implements 7 instructions (LDA, LDX, ADC, STA, JMP, BEQ, HLT) – 1218/1218 tests passing (includes 183 FPGA integration tests)
+
+**Progress Update (2025-12-04)**: Phase 3.1 complete. X register, flag register, ALU path, and relative branching are integrated. Next up: STX, SBC, and BNE to close out Phase 3.2.
 
 ---
 
-## Phase 3.1: Foundation (Target: 7 instructions)
+## Phase 3.1: Foundation (Target: 7 instructions) ✅ COMPLETE
 
-### New Components Needed:
-1. **X Register** - 8-bit register (like A register)
-2. **Flag Register** - 4 bits initially (C, Z, N, V)
-3. **ALU Integration** - Already have alu8.wire, need to wire it up
-4. **Relative Addressing** - For branches (PC + signed offset)
+### New Components (done):
+- [x] **X Register** - 8-bit register (like A register)
+- [x] **Flag Register** - 4 bits initially (C, Z, N, V)
+- [x] **ALU Integration** - alu8.wire wired into datapath
+- [x] **Relative Addressing** - PC + signed offset path
 
 ### Instructions to Add (3 new):
 
-| Instruction | Opcode | Bytes | Description | Priority |
-|-------------|--------|-------|-------------|----------|
-| LDX #imm    | 0xA2   | 2     | Load X with immediate | HIGH |
-| ADC #imm    | 0x69   | 2     | Add with carry to A | HIGH |
-| BEQ rel     | 0xF0   | 2     | Branch if Z=1 | HIGH |
+| Instruction | Opcode | Bytes | Description | Status |
+|-------------|--------|-------|-------------|--------|
+| LDX #imm    | 0xA2   | 2     | Load X with immediate | ✅ |
+| ADC #imm    | 0x69   | 2     | Add with carry to A | ✅ |
+| BEQ rel     | 0xF0   | 2     | Branch if Z=1 | ✅ |
 
-**Total after 3.1**: 7 instructions (4 existing + 3 new)
+**Total after 3.1**: 7 instructions (4 existing + 3 new) – implemented
 
 ### State Machine Changes:
-- Add FETCH_REL state for relative addressing
-- Add EXEC_ADC state for ALU operations
-- Modify DECODE to handle new instruction types
+- [x] Add FETCH_REL state for relative addressing
+- [x] Add EXEC_ADC state for ALU operations
+- [x] Modify DECODE to handle new instruction types
 
 ### Decoder Changes:
-- Add detection for 0xA2 (LDX)
-- Add detection for 0x69 (ADC)
-- Add detection for 0xF0 (BEQ)
-- Add output signals: `is_ldx`, `is_adc`, `is_beq`, `needs_rel`
+- [x] Add detection for 0xA2 (LDX)
+- [x] Add detection for 0x69 (ADC)
+- [x] Add detection for 0xF0 (BEQ)
+- [x] Add output signals: `is_ldx`, `is_adc`, `is_beq`, `needs_rel`
 
 ---
 
@@ -118,11 +120,11 @@ Target: ~150-200 tests total by end of Phase 3
 ## Success Criteria
 
 Phase 3.1 Complete:
-- [ ] 7 instructions working
-- [ ] X register operations (LDX)
-- [ ] Basic arithmetic (ADC)
-- [ ] Basic branching (BEQ)
-- [ ] ~130-150 tests passing
+- [x] 7 instructions working
+- [x] X register operations (LDX)
+- [x] Basic arithmetic (ADC)
+- [x] Basic branching (BEQ)
+- [x] Tests passing: 1218 total (includes 183 FPGA integration tests)
 
 Phase 3.2 Complete:
 - [ ] 10 instructions working
