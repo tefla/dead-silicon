@@ -303,15 +303,17 @@ export class CPU {
       // JSR - Jump to Subroutine
       case 0x20: { // JSR abs
         const addr = this.fetchWord()
+        const returnAddr = this.state.PC - 1
         // Push return address - 1 (PC already points past operand)
-        this.pushWord(this.state.PC - 1)
+        this.pushWord(returnAddr)
         this.state.PC = addr
         break
       }
 
       // RTS - Return from Subroutine
       case 0x60: {
-        this.state.PC = this.pullWord() + 1
+        const pulledAddr = this.pullWord()
+        this.state.PC = pulledAddr + 1
         break
       }
 

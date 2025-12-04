@@ -40,6 +40,7 @@ export function useSimulation() {
   const ioRef = useRef<SimpleIO | null>(null)
   const rafIdRef = useRef<number | null>(null)
   const clockStateRef = useRef(0)
+  const currentCycleRef = useRef(0)
 
   // Initialize simulator when editor value changes
   useEffect(() => {
@@ -55,6 +56,7 @@ export function useSimulation() {
     if (result.ok) {
       simulatorRef.current = result.simulator
       clockStateRef.current = 0
+      currentCycleRef.current = 0
       setSimulationError(null)
 
       // Initialize with clock low
@@ -80,8 +82,10 @@ export function useSimulation() {
     }
 
     // Try to assemble and create CPU
+    console.log('[ASSEMBLE] First 50 chars of editorValue:', editorValue.substring(0, 50))
     const result = assemble(editorValue)
     if (result.ok) {
+      console.log('[ASSEMBLE] Origin:', '0x' + result.program.origin.toString(16), 'Binary length:', result.program.binary.length)
       const memory = createMemory()
       const io = new SimpleIO()
 
@@ -95,6 +99,7 @@ export function useSimulation() {
 
       cpuRef.current = cpu
       ioRef.current = io
+      currentCycleRef.current = 0
       setSimulationError(null)
       clearTerminal()
 
@@ -114,9 +119,11 @@ export function useSimulation() {
 
     const io = ioRef.current
     // Push all queued input to CPU serial RX
+    console.log('[Input Queue] Processing', terminalInputQueue.length, 'characters:', terminalInputQueue.join(''))
     for (const char of terminalInputQueue) {
       io.serialIn.push(char.charCodeAt(0))
     }
+    console.log('[Input Queue] serialIn now has', io.serialIn.length, 'bytes')
     // Clear the queue after processing
     clearInputQueue()
   }, [activeLanguage, terminalInputQueue, clearInputQueue])
@@ -144,31 +151,44 @@ export function useSimulation() {
 
           const values = simulator.getAllWires()
           addWaveformSnapshot({
-            cycle: currentCycle,
+            cycle: currentCycleRef.current,
             signals: new Map(values),
           })
           setWireValues(values)
 
           if (clockStateRef.current === 1) {
-            setCurrentCycle(currentCycle + 1)
+            currentCycleRef.current++
+            setCurrentCycle(currentCycleRef.current)
           }
         }
       } else if (activeLanguage === 'pulse' && cpuRef.current && ioRef.current) {
         // Pulse CPU simulation
         const cpu = cpuRef.current
         const io = ioRef.current
-        const stepsPerFrame = Math.max(1, Math.floor(speed / 2))
+        // Run more instructions per frame for Pulse since it has tight polling loops
+        const stepsPerFrame = Math.max(100, Math.floor(speed * 50))
 
         for (let i = 0; i < stepsPerFrame; i++) {
           if (!cpu.state.halted) {
             cpu.step()
-            setCurrentCycle(cpu.state.cycles)
+            currentCycleRef.current = cpu.state.cycles
+            setCurrentCycle(currentCycleRef.current)
 
             // Check for serial output
             while (io.serialOut.length > 0) {
               const char = io.serialOut.shift()!
               appendTerminalOutput(String.fromCharCode(char))
             }
+          } else {
+            // CPU halted - log once with full state
+            if (i === 0) {
+              console.log('[Pulse CPU] HALTED at cycle', cpu.state.cycles)
+              console.log('  PC:', '0x' + cpu.state.PC.toString(16).padStart(4, '0'))
+              console.log('  SP:', '0x' + cpu.state.SP.toString(16).padStart(2, '0'))
+              console.log('  A:', '0x' + cpu.state.A.toString(16).padStart(2, '0'))
+              console.log('  serialIn queue:', io.serialIn.length, 'bytes')
+            }
+            break
           }
         }
       }
@@ -184,7 +204,7 @@ export function useSimulation() {
         rafIdRef.current = null
       }
     }
-  }, [isRunning, activeLanguage, speed, currentCycle, setCurrentCycle, setWireValues, addWaveformSnapshot, appendTerminalOutput])
+  }, [isRunning, activeLanguage, speed, setCurrentCycle, setWireValues, addWaveformSnapshot, appendTerminalOutput])
 
   // Step function (single step)
   const step = () => {
@@ -198,7 +218,7 @@ export function useSimulation() {
 
       let values = simulator.getAllWires()
       addWaveformSnapshot({
-        cycle: currentCycle,
+        cycle: currentCycleRef.current,
         signals: new Map(values),
       })
 
@@ -209,18 +229,20 @@ export function useSimulation() {
 
       values = simulator.getAllWires()
       addWaveformSnapshot({
-        cycle: currentCycle,
+        cycle: currentCycleRef.current,
         signals: new Map(values),
       })
       setWireValues(values)
-      setCurrentCycle(currentCycle + 1)
+      currentCycleRef.current++
+      setCurrentCycle(currentCycleRef.current)
     } else if (activeLanguage === 'pulse' && cpuRef.current && ioRef.current) {
       const cpu = cpuRef.current
       const io = ioRef.current
 
       if (!cpu.state.halted) {
         cpu.step()
-        setCurrentCycle(cpu.state.cycles)
+        currentCycleRef.current = cpu.state.cycles
+        setCurrentCycle(currentCycleRef.current)
 
         // Check for serial output
         while (io.serialOut.length > 0) {
@@ -242,6 +264,7 @@ export function useSimulation() {
 
       const values = simulator.getAllWires()
       setWireValues(values)
+      currentCycleRef.current = 0
       setCurrentCycle(0)
       clearWaveform()
     } else if (activeLanguage === 'pulse' && cpuRef.current && ioRef.current) {
@@ -251,6 +274,7 @@ export function useSimulation() {
       cpu.reset()
       io.serialOut = []
       io.serialIn = []
+      currentCycleRef.current = 0
       setCurrentCycle(0)
       clearTerminal()
     }

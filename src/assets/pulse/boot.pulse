@@ -2,7 +2,7 @@
 ; Minimal boot loader that initializes system and runs shell
 ; Uses only: immediate, absolute, implied, relative addressing modes
 
-.org $FF00
+.org $E000
 
 ; Reset vector entry point
 reset:
