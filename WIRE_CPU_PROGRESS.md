@@ -196,14 +196,17 @@
 
 ## Current Status
 
-**Active Phase:** Phase 3 (instruction set expansion)
-**Current Task:** Phase 3.2 (STX, SBC, BNE)
-**Tests Passing:** 1218 total (includes 183 FPGA integration tests)
+**Active Phase:** Phase 3.2 (instruction set expansion)
+**Current Task:** STX, SBC, BNE instructions
+**Tests Passing:** 1281 total (196 CPU component tests)
 **Last Updated:** 2025-12-04
 
 ### Recent Accomplishments
+- ✅ **Phase 3.1 Complete!** 7 instructions working (LDA, LDX, ADC, STA, JMP, BEQ, HLT)
+- 🔧 **Bug Fix**: Fixed trailing space in simulator wire resolution (dec.is_adc now works)
+- 🚀 **Performance**: Levelized simulator 60x faster than interpreter (6.5 KHz vs 109 Hz)
+- ✅ **Phase 2 Complete!** Minimal CPU with state machine
 - ✅ **Phase 1 Complete!** All foundation components built
 - 📦 **Phase 1.3**: mux4way8, mux8way8 (25 new tests)
 - 📦 **Phase 1.2**: alu8, not8, and8, or8, xor8 (66 tests)
 - 📦 **Phase 1.1**: register16, adder16, mux8, mux16, inc16
-- ✅ **Test Coverage**: 122 CPU component tests, all passing

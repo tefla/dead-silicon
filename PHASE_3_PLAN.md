@@ -2,9 +2,9 @@
 
 **Goal**: Expand from 4 to 10+ instructions with ALU, flags, and X register
 
-**Current State**: cpu_minimal.wire implements 7 instructions (LDA, LDX, ADC, STA, JMP, BEQ, HLT) – 1218/1218 tests passing (includes 183 FPGA integration tests)
+**Current State**: cpu_minimal.wire implements 7 instructions (LDA, LDX, ADC, STA, JMP, BEQ, HLT) – 1281/1281 tests passing
 
-**Progress Update (2025-12-04)**: Phase 3.1 complete. X register, flag register, ALU path, and relative branching are integrated. Next up: STX, SBC, and BNE to close out Phase 3.2.
+**Progress Update (2025-12-04)**: Phase 3.1 complete. X register, flag register, ALU path, and relative branching are integrated. Fixed critical bug in simulator wire resolution (trailing space causing dec.is_adc to fail). Levelized simulator now 60x faster than interpreter. Next up: STX, SBC, and BNE to close out Phase 3.2.
 
 ---
 
@@ -124,7 +124,7 @@ Phase 3.1 Complete:
 - [x] X register operations (LDX)
 - [x] Basic arithmetic (ADC)
 - [x] Basic branching (BEQ)
-- [x] Tests passing: 1218 total (includes 183 FPGA integration tests)
+- [x] Tests passing: 1281 total
 
 Phase 3.2 Complete:
 - [ ] 10 instructions working

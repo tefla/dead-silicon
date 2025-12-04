@@ -31,6 +31,29 @@ if (!res1.ok || !res2.ok) {
 const sim1 = res1.simulator
 const sim2 = res2.simulator
 
+// Debug: Inspect aliases in InterpreterSimulator
+// @ts-ignore
+const aliases = sim1.module.aliases as Map<string, string>
+console.log('Aliases in InterpreterSimulator:')
+for (const [alias, target] of aliases) {
+    if (alias.includes('ns') || alias.includes('state') || alias.includes('ir') || alias.includes('alu')) {
+        console.log(`${alias} -> ${target}`)
+    }
+}
+
+// Find the node producing ns0
+const ns0Wire = aliases.get('ns0')
+if (ns0Wire) {
+    // @ts-ignore
+    const nodes = sim1.module.nodes as any[]
+    const node = nodes.find(n => n.outputs.includes(ns0Wire))
+    if (node) {
+        console.log(`Node producing ns0 (${ns0Wire}):`, JSON.stringify(node, null, 2))
+    } else {
+        console.log(`No node found producing ${ns0Wire}`)
+    }
+}
+
 const program = [
     0xA9, 0x00,  // 0: LDA #$00
     0x69, 0x01,  // 2: ADC #$01 (loop)
@@ -45,6 +68,10 @@ function compare(stepName: string, cycleNum: number, phase: string) {
     for (const [name, val1] of wires1) {
         const val2 = wires2.get(name) ?? 0
         if (val1 !== val2) {
+            // Ignore .out member access wires if they are just duplicates of the main wire
+            // TypedArraySimulator might not track them if they are unused
+            if (name.endsWith('.out')) continue
+
             console.log(`Diff at ${stepName}: ${name} interpreter=${val1} typed=${val2}`)
             diffs++
             // Compare internal signals relevant to IR loading
@@ -90,6 +117,24 @@ function compare(stepName: string, cycleNum: number, phase: string) {
                 if (val1 !== val2) {
                     console.log(`Diff at cycle ${cycleNum} ${phase}: ${sig} interpreter=${val1} typed=${val2}`)
                 }
+            }
+
+            // Check ALU inputs
+            const aluSignals = ['alu.result', 'alu.cout', 'alu.z', 'alu.n', 'alu.vout', 'a_out', 'data_in']
+            for (const sig of aluSignals) {
+                const val1 = sim1.getWire(sig)
+                const val2 = sim2.getWire(sig)
+                if (val1 !== val2) {
+                    console.log(`Diff at cycle ${cycleNum} ${phase}: ${sig} interpreter=${val1} typed=${val2}`)
+                }
+            }
+
+            // Check PC increment logic
+            const pcSignals = ['pc_inc', 'skip_pc_inc', 'pc_out', 'inc_in_fetch_op']
+            for (const sig of pcSignals) {
+                const val1 = sim1.getWire(sig)
+                const val2 = sim2.getWire(sig)
+                console.log(`Cycle ${cycleNum} ${phase}: ${sig} interpreter=${val1} typed=${val2}`)
             }
         }
     }

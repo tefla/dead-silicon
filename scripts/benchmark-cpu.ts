@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
-import { createSimulator } from './src/wire/simulator'
+import { createSimulator, type SimulatorStrategy } from '../src/wire/simulator'
 
 // Load CPU and dependencies
 const gatesWire = readFileSync(resolve('./src/assets/wire/gates.wire'), 'utf-8')
@@ -20,14 +20,6 @@ const alu8Wire = readFileSync(resolve('./src/assets/wire/alu8.wire'), 'utf-8')
 const cpuWire = readFileSync(resolve('./src/assets/wire/cpu_minimal.wire'), 'utf-8')
 const cpuStdlib = stdlib + '\n' + pcWire + '\n' + decoderWire + '\n' + alu8Wire + '\n' + cpuWire
 
-const result = createSimulator(cpuStdlib, 'cpu_minimal')
-if (!result.ok) {
-  console.log('ERROR:', result.error)
-  process.exit(1)
-}
-
-const sim = result.simulator
-
 // Program: Loop that increments accumulator
 // LDA #$00      ; A = 0
 // loop:
@@ -39,54 +31,72 @@ const program = [
   0x4C, 0x02, 0x00  // 4: JMP $0002
 ]
 
-function clockCycle() {
-  sim.setInput('clk', 0)
-  sim.step()
-  sim.setInput('clk', 1)
-  sim.step()
-}
+const benchmarkCycles = 500
 
-// Reset
-sim.setInput('reset', 1)
-sim.setInput('data_in', 0)
-clockCycle()
-sim.setInput('reset', 0)
+function runBenchmark(strategy: SimulatorStrategy) {
+  console.log(`Benchmarking strategy: ${strategy}`)
+
+  const result = createSimulator(cpuStdlib, 'cpu_minimal', strategy)
+  if (!result.ok) {
+    console.log('ERROR:', result.error)
+    process.exit(1)
+  }
+
+  const sim = result.simulator
+
+  function clockCycle() {
+    sim.setInput('clk', 0)
+    sim.step()
+    sim.setInput('clk', 1)
+    sim.step()
+  }
+
+  // Reset
+  sim.setInput('reset', 1)
+  sim.setInput('data_in', 0)
+  clockCycle()
+  sim.setInput('reset', 0)
+
+  const startTime = performance.now()
+
+  for (let i = 0; i < benchmarkCycles; i++) {
+    const addr = sim.getOutput('addr')
+    const data = addr < program.length ? program[addr] : 0
+    sim.setInput('data_in', data)
+    clockCycle()
+  }
+
+  const endTime = performance.now()
+  const elapsedMs = endTime - startTime
+  const elapsedSec = elapsedMs / 1000
+  const cyclesPerSec = benchmarkCycles / elapsedSec
+  const khz = cyclesPerSec / 1000
+  const mhz = cyclesPerSec / 1000000
+
+  console.log(`Executed ${benchmarkCycles} cycles in ${elapsedMs.toFixed(2)} ms`)
+  console.log(`Speed: ${cyclesPerSec.toFixed(0)} cycles/sec`)
+  console.log(`       ${khz.toFixed(2)} KHz`)
+  console.log(`       ${mhz.toFixed(3)} MHz`)
+
+  const finalA = sim.getOutput('a_out')
+  console.log(`Final A register: ${finalA} (0x${finalA.toString(16).padStart(2, '0')})`)
+  console.log()
+
+  return cyclesPerSec
+}
 
 console.log('Benchmarking CPU simulation speed...')
 console.log('Running tight loop: LDA #$00, loop: ADC #$01, JMP loop')
+console.log(`Cycles: ${benchmarkCycles}`)
 console.log()
 
-const benchmarkCycles = 10000
-const startTime = performance.now()
+const interpreterSpeed = runBenchmark('interpreter')
+const typedArraySpeed = runBenchmark('typed-array')
+const jitSpeed = runBenchmark('jit')
+const levelizedSpeed = runBenchmark('levelized')
 
-for (let i = 0; i < benchmarkCycles; i++) {
-  const addr = sim.getOutput('addr')
-  const data = addr < program.length ? program[addr] : 0
-  sim.setInput('data_in', data)
-  clockCycle()
-}
-
-const endTime = performance.now()
-const elapsedMs = endTime - startTime
-const elapsedSec = elapsedMs / 1000
-const cyclesPerSec = benchmarkCycles / elapsedSec
-const khz = cyclesPerSec / 1000
-const mhz = cyclesPerSec / 1000000
-
-console.log(`Executed ${benchmarkCycles} cycles in ${elapsedMs.toFixed(2)} ms`)
-console.log(`Speed: ${cyclesPerSec.toFixed(0)} cycles/sec`)
-console.log(`       ${khz.toFixed(2)} KHz`)
-console.log(`       ${mhz.toFixed(3)} MHz`)
-console.log()
-
-const finalA = sim.getOutput('a_out')
-console.log(`Final A register: ${finalA} (0x${finalA.toString(16).padStart(2, '0')})`)
-
-// Calculate instructions executed (each iteration is ~10 cycles: 3 for LDA initially, then 7 per loop iteration)
-const instructionsPerLoop = 2 // ADC + JMP
-const loopsExecuted = Math.floor((benchmarkCycles - 3) / 7)
-const instructionsExecuted = 1 + (loopsExecuted * instructionsPerLoop) // +1 for initial LDA
-const ips = instructionsExecuted / elapsedSec
-
-console.log(`Instructions executed: ~${instructionsExecuted}`)
-console.log(`Instructions per second: ~${ips.toFixed(0)} IPS`)
+console.log('--- Results ---')
+console.log(`Interpreter: 1.00x (${interpreterSpeed.toFixed(0)} Hz)`)
+console.log(`TypedArray:  ${(typedArraySpeed / interpreterSpeed).toFixed(2)}x (${typedArraySpeed.toFixed(0)} Hz)`)
+console.log(`JIT:         ${(jitSpeed / interpreterSpeed).toFixed(2)}x (${jitSpeed.toFixed(0)} Hz)`)
+console.log(`Levelized:   ${(levelizedSpeed / interpreterSpeed).toFixed(2)}x (${levelizedSpeed.toFixed(0)} Hz)`)

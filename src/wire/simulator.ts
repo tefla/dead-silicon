@@ -9,10 +9,23 @@ export interface SimulatorState {
   dffState: Map<string, number>     // DFF internal state
   ramState: Map<string, Uint8Array> // RAM contents (node id -> memory array)
   romData: Map<string, Uint8Array>  // ROM contents (node id -> data array)
-  subSimulators: Map<string, Simulator> // Persistent sub-module simulators (node id -> simulator)
+  subSimulators: Map<string, ISimulator> // Persistent sub-module simulators (node id -> simulator)
 }
 
-export class Simulator {
+export interface ISimulator {
+  setInput(name: string, value: number): void
+  getOutput(name: string): number
+  getWire(name: string): number
+  loadRom(data: Uint8Array | number[], nodeId?: string): void
+  readRam(addr: number, nodeId?: string): number
+  writeRam(addr: number, value: number, nodeId?: string): void
+  step(): void
+  run(cycles: number): void
+  reset(): void
+  getAllWires(): Map<string, number>
+}
+
+export class InterpreterSimulator implements ISimulator {
   private module: CompiledModule
   private modules: Map<string, CompiledModule>
   private state: SimulatorState
@@ -64,7 +77,7 @@ export class Simulator {
 
   // Get any wire value
   getWire(name: string): number {
-    return this.state.values.get(name) ?? 0
+    return this.resolveWire(name)
   }
 
   // Load data into ROM (by finding ROM nodes)
@@ -341,7 +354,7 @@ export class Simulator {
     // Get or create a persistent sub-simulator for this module instance
     let subSim = this.state.subSimulators.get(node.id)
     if (!subSim) {
-      subSim = new Simulator(subModule, this.modules)
+      subSim = new InterpreterSimulator(subModule, this.modules)
       this.state.subSimulators.set(node.id, subSim)
     }
 
@@ -368,6 +381,10 @@ export class Simulator {
         this.state.values.set(node.outputs[i], value)
       }
     }
+  }
+
+  // Debug helper
+  logAlias(name: string) {
   }
 
   // Resolve a wire value, handling aliases, member access and indexing
@@ -458,31 +475,43 @@ export class Simulator {
   }
 }
 
+// Export alias for backward compatibility
+export const Simulator = InterpreterSimulator
+
 // Convenience function to compile and create a simulator
 import { lex } from './lexer'
 import { parse } from './parser'
 import { compile, resetNodeCounter } from './compiler'
+import { TypedArraySimulator } from './simulator-typed'
+import { JITSimulator } from './simulator-jit'
+import { LevelizedSimulator } from './simulator-levelized'
+
+export type SimulatorStrategy = 'interpreter' | 'typed-array' | 'jit' | 'levelized'
 
 export type SimulateResult =
-  | { ok: true; simulator: Simulator; modules: Map<string, CompiledModule> }
+  | { ok: true; simulator: ISimulator; modules: Map<string, CompiledModule> }
   | { ok: false; error: string }
 
-export function createSimulator(source: string, mainModule?: string): SimulateResult {
+export function createSimulator(
+  source: string,
+  mainModule?: string,
+  strategy: SimulatorStrategy = 'interpreter'
+): SimulateResult {
   resetNodeCounter()
 
   const lexResult = lex(source)
   if (!lexResult.ok) {
-    return { ok: false, error: `Lex error: ${lexResult.error.message}` }
+    return { ok: false, error: `Lex error: ${lexResult.error.message} ` }
   }
 
   const parseResult = parse(lexResult.tokens)
   if (!parseResult.ok) {
-    return { ok: false, error: `Parse error: ${parseResult.error.message}` }
+    return { ok: false, error: `Parse error: ${parseResult.error.message} ` }
   }
 
   const compileResult = compile(parseResult.value)
   if (!compileResult.ok) {
-    return { ok: false, error: `Compile error: ${compileResult.error.message}` }
+    return { ok: false, error: `Compile error: ${compileResult.error.message} ` }
   }
 
   // Find the main module
@@ -502,9 +531,27 @@ export function createSimulator(source: string, mainModule?: string): SimulateRe
     return { ok: false, error: 'No modules found' }
   }
 
+  let simulator: ISimulator
+  switch (strategy) {
+    case 'interpreter':
+      simulator = new InterpreterSimulator(main, modules)
+      break
+    case 'typed-array':
+      simulator = new TypedArraySimulator(main, modules)
+      break
+    case 'jit':
+      simulator = new JITSimulator(main, modules)
+      break
+    case 'levelized':
+      simulator = new LevelizedSimulator(main, modules)
+      break
+    default:
+      return { ok: false, error: `Unknown strategy: ${strategy} ` }
+  }
+
   return {
     ok: true,
-    simulator: new Simulator(main, modules),
+    simulator,
     modules,
   }
 }

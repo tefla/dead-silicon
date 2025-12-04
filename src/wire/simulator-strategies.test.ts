@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createSimulator, type SimulatorStrategy } from './simulator'
 
 describe('Simulator Strategies', () => {
-    const strategies: SimulatorStrategy[] = ['interpreter', 'typed-array', 'jit']
+    const strategies: SimulatorStrategy[] = ['interpreter', 'typed-array', 'jit', 'levelized']
 
     const testCircuit = `
     module test_circuit(a, b, sel, clk, reset) -> (out, dff_out):
