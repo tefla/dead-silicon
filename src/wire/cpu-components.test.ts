@@ -11,8 +11,9 @@ const gatesWire = readFileSync(resolve(__dirname, '../assets/wire/gates.wire'), 
 const arithmeticWire = readFileSync(resolve(__dirname, '../assets/wire/arithmetic.wire'), 'utf-8')
 const registersWire = readFileSync(resolve(__dirname, '../assets/wire/registers.wire'), 'utf-8')
 const register16Wire = readFileSync(resolve(__dirname, '../assets/wire/register16.wire'), 'utf-8')
+const adder16Wire = readFileSync(resolve(__dirname, '../assets/wire/adder16.wire'), 'utf-8')
 
-const stdlib = gatesWire + '\n' + arithmeticWire + '\n' + registersWire + '\n' + register16Wire
+const stdlib = gatesWire + '\n' + arithmeticWire + '\n' + registersWire + '\n' + register16Wire + '\n' + adder16Wire
 
 describe('16-bit Components', () => {
   describe('bit slicing and concat (sanity check)', () => {
@@ -220,6 +221,160 @@ module test_reg16(d:16, en, clk) -> q:16:
       sim.setInput('clk', 1)
       sim.step()
       expect(sim.getOutput('q')).toBe(0x5555)
+    })
+  })
+
+  describe('adder16', () => {
+    const testModule = `
+${stdlib}
+
+module test_adder16(a:16, b:16, cin) -> (sum:16, cout):
+  result = adder16(a, b, cin)
+  sum = result.sum
+  cout = result.cout
+`
+
+    it('adds two zeros', () => {
+      const result = createSimulator(testModule, 'test_adder16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+      sim.setInput('a', 0)
+      sim.setInput('b', 0)
+      sim.setInput('cin', 0)
+      sim.step()
+
+      expect(sim.getOutput('sum')).toBe(0)
+      expect(sim.getOutput('cout')).toBe(0)
+    })
+
+    it('adds simple values without carry', () => {
+      const result = createSimulator(testModule, 'test_adder16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      // 0x1234 + 0x0100 = 0x1334
+      sim.setInput('a', 0x1234)
+      sim.setInput('b', 0x0100)
+      sim.setInput('cin', 0)
+      sim.step()
+
+      expect(sim.getOutput('sum')).toBe(0x1334)
+      expect(sim.getOutput('cout')).toBe(0)
+    })
+
+    it('propagates carry from low byte to high byte', () => {
+      const result = createSimulator(testModule, 'test_adder16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      // 0x00FF + 0x0001 = 0x0100 (carry from low to high)
+      sim.setInput('a', 0x00FF)
+      sim.setInput('b', 0x0001)
+      sim.setInput('cin', 0)
+      sim.step()
+
+      expect(sim.getOutput('sum')).toBe(0x0100)
+      expect(sim.getOutput('cout')).toBe(0)
+    })
+
+    it('handles carry out when sum exceeds 16 bits', () => {
+      const result = createSimulator(testModule, 'test_adder16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      // 0xFFFF + 0x0001 = 0x10000 -> sum=0x0000, cout=1
+      sim.setInput('a', 0xFFFF)
+      sim.setInput('b', 0x0001)
+      sim.setInput('cin', 0)
+      sim.step()
+
+      expect(sim.getOutput('sum')).toBe(0)
+      expect(sim.getOutput('cout')).toBe(1)
+    })
+
+    it('handles carry-in correctly', () => {
+      const result = createSimulator(testModule, 'test_adder16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      // 0x1234 + 0x5678 + 1 = 0x68AD
+      sim.setInput('a', 0x1234)
+      sim.setInput('b', 0x5678)
+      sim.setInput('cin', 1)
+      sim.step()
+
+      expect(sim.getOutput('sum')).toBe(0x68AD)
+      expect(sim.getOutput('cout')).toBe(0)
+    })
+
+    it('adds maximum values', () => {
+      const result = createSimulator(testModule, 'test_adder16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      // 0xFFFF + 0xFFFF = 0x1FFFE -> sum=0xFFFE, cout=1
+      sim.setInput('a', 0xFFFF)
+      sim.setInput('b', 0xFFFF)
+      sim.setInput('cin', 0)
+      sim.step()
+
+      expect(sim.getOutput('sum')).toBe(0xFFFE)
+      expect(sim.getOutput('cout')).toBe(1)
+    })
+
+    it('adds with both carry-in and carry-out', () => {
+      const result = createSimulator(testModule, 'test_adder16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      // 0xFFFF + 0xFFFF + 1 = 0x1FFFF -> sum=0xFFFF, cout=1
+      sim.setInput('a', 0xFFFF)
+      sim.setInput('b', 0xFFFF)
+      sim.setInput('cin', 1)
+      sim.step()
+
+      expect(sim.getOutput('sum')).toBe(0xFFFF)
+      expect(sim.getOutput('cout')).toBe(1)
+    })
+
+    it('handles multiple carry propagations', () => {
+      const result = createSimulator(testModule, 'test_adder16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const sim = result.simulator
+
+      // Test cases with carries through multiple bit positions
+      const testCases = [
+        { a: 0x0FFF, b: 0x0001, cin: 0, sum: 0x1000, cout: 0 },
+        { a: 0x7FFF, b: 0x0001, cin: 0, sum: 0x8000, cout: 0 },
+        { a: 0x8000, b: 0x8000, cin: 0, sum: 0x0000, cout: 1 },
+        { a: 0xAAAA, b: 0x5555, cin: 0, sum: 0xFFFF, cout: 0 },
+      ]
+
+      for (const tc of testCases) {
+        sim.setInput('a', tc.a)
+        sim.setInput('b', tc.b)
+        sim.setInput('cin', tc.cin)
+        sim.step()
+
+        expect(sim.getOutput('sum')).toBe(tc.sum)
+        expect(sim.getOutput('cout')).toBe(tc.cout)
+      }
     })
   })
 })

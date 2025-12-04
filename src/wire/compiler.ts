@@ -337,13 +337,29 @@ function compileExpr(
 
     case 'member': {
       // For member access like `h.sum`, we need to handle multi-output modules
-      // This is more complex - for now, create a synthetic wire name
       const objResult = compileExpr(expr.object, wires, nodes, moduleName, aliases, modules)
       if (!objResult.ok) return objResult
 
       const memberWire = `${objResult.value.wire}.${expr.field}`
-      wires.set(memberWire, 1)
-      return { ok: true, value: { wire: memberWire, width: 1 } }
+
+      // Look up the width from the module definition
+      let width = 1 // default
+
+      // Find the node that outputs to objResult.value.wire
+      const sourceNode = nodes.find(n => n.outputs.includes(objResult.value.wire))
+      if (sourceNode && sourceNode.type === 'module' && sourceNode.moduleName && modules) {
+        const subModule = modules.get(sourceNode.moduleName)
+        if (subModule) {
+          // Find the output with the matching field name
+          const output = subModule.outputs.find(o => o.name === expr.field)
+          if (output) {
+            width = output.width
+          }
+        }
+      }
+
+      wires.set(memberWire, width)
+      return { ok: true, value: { wire: memberWire, width } }
     }
 
     case 'index': {
