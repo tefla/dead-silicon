@@ -2,9 +2,9 @@
 
 **Goal**: Expand from 4 to 10+ instructions with ALU, flags, and X register
 
-**Current State**: cpu_minimal.wire implements 7 instructions (LDA, LDX, ADC, STA, JMP, BEQ, HLT) – 1281/1281 tests passing
+**Current State**: cpu_minimal.wire implements 10 instructions (LDA, LDX, ADC, SBC, STA, STX, JMP, BEQ, BNE, HLT) – 1297/1297 tests passing
 
-**Progress Update (2025-12-04)**: Phase 3.1 complete. X register, flag register, ALU path, and relative branching are integrated. Fixed critical bug in simulator wire resolution (trailing space causing dec.is_adc to fail). Levelized simulator now 60x faster than interpreter. Next up: STX, SBC, and BNE to close out Phase 3.2.
+**Progress Update (2025-12-04)**: Phase 3.2 complete. All 10 core instructions working with full arithmetic, store, jump, and conditional branching. STX stores X register to memory, SBC performs subtraction with borrow, BNE branches when Z=0. 16 new tests added for Phase 3.2 instructions. Next up: CMP, INX, DEX for Phase 3.3.
 
 ---
 
@@ -39,22 +39,23 @@
 
 ---
 
-## Phase 3.2: Extended Operations (Target: 10 instructions)
+## Phase 3.2: Extended Operations (Target: 10 instructions) ✅ COMPLETE
 
-### Instructions to Add (3 more):
+### Instructions Added (3 new):
 
-| Instruction | Opcode | Bytes | Description |
-|-------------|--------|-------|-------------|
-| STX $addr   | 0x8E   | 3     | Store X to memory |
-| SBC #imm    | 0xE9   | 2     | Subtract with carry from A |
-| BNE rel     | 0xD0   | 2     | Branch if Z=0 |
+| Instruction | Opcode | Bytes | Description | Status |
+|-------------|--------|-------|-------------|--------|
+| STX $addr   | 0x8E   | 3     | Store X to memory | ✅ |
+| SBC #imm    | 0xE9   | 2     | Subtract with carry from A | ✅ |
+| BNE rel     | 0xD0   | 2     | Branch if Z=0 | ✅ |
 
-**Total after 3.2**: 10 instructions
+**Total after 3.2**: 10 instructions (all working)
 
-### Additional Features:
-- Full flag support (C, Z, N, V)
-- Subtraction with borrow
-- Both conditional branches (equal/not equal)
+### Implemented Features:
+- [x] Full flag support (C, Z, N, V)
+- [x] Subtraction with borrow (SBC)
+- [x] Both conditional branches (BEQ, BNE)
+- [x] 16 new tests for Phase 3.2 instructions
 
 ---
 
@@ -127,10 +128,10 @@ Phase 3.1 Complete:
 - [x] Tests passing: 1281 total
 
 Phase 3.2 Complete:
-- [ ] 10 instructions working
-- [ ] Full arithmetic (ADC, SBC)
-- [ ] Both branches (BEQ, BNE)
-- [ ] ~150-180 tests passing
+- [x] 10 instructions working (LDA, LDX, ADC, SBC, STA, STX, JMP, BEQ, BNE, HLT)
+- [x] Full arithmetic (ADC, SBC)
+- [x] Both branches (BEQ, BNE)
+- [x] 212 CPU tests passing (1297 total)
 
 Phase 3.3 Complete:
 - [ ] 12-13 instructions working

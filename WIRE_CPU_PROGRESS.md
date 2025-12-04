@@ -92,22 +92,22 @@
 - [x] FETCH_REL state and ALU execution path implemented
 - [x] Tests passing for new instructions
 
-### 3.2: Extended Operations (In Progress)
-- [ ] Add STX $addr
-- [ ] Add SBC #imm
-- [ ] Add BNE rel
-- [ ] Extend flag behaviors for SBC/branches
-- [ ] Write and verify tests
+### 3.2: Extended Operations ✅
+- [x] Add STX $addr (5 tests)
+- [x] Add SBC #imm (6 tests)
+- [x] Add BNE rel (5 tests)
+- [x] Extend flag behaviors for SBC/branches
+- [x] Write and verify tests (16 new tests)
 
 ### 3.3: Polish & Extras
 - [ ] CMP #imm
 - [ ] INX, DEX
 - [ ] Additional branch/regression tests
 
-**Phase 3 Complete When:**
-- [ ] 10+ instructions working
-- [ ] ~130-150 tests passing on CPU track (currently 1218 total project tests)
-- [ ] Arithmetic and branching work
+**Phase 3.2 Complete When:**
+- [x] 10 instructions working (LDA, LDX, ADC, SBC, STA, STX, JMP, BEQ, BNE, HLT)
+- [x] 212 CPU component tests passing (1297 total project tests)
+- [x] Arithmetic and branching work
 
 ---
 
@@ -196,17 +196,16 @@
 
 ## Current Status
 
-**Active Phase:** Phase 3.2 (instruction set expansion)
-**Current Task:** STX, SBC, BNE instructions
-**Tests Passing:** 1281 total (196 CPU component tests)
+**Active Phase:** Phase 3.3 (polish & extras)
+**Current Task:** CMP, INX, DEX instructions
+**Tests Passing:** 1297 total (212 CPU component tests)
 **Last Updated:** 2025-12-04
 
 ### Recent Accomplishments
-- ✅ **Phase 3.1 Complete!** 7 instructions working (LDA, LDX, ADC, STA, JMP, BEQ, HLT)
+- ✅ **Phase 3.2 Complete!** 10 instructions working (LDA, LDX, ADC, SBC, STA, STX, JMP, BEQ, BNE, HLT)
+- 📦 **Phase 3.2**: STX, SBC, BNE with 16 new tests
+- ✅ **Phase 3.1 Complete!** 7 instructions working
 - 🔧 **Bug Fix**: Fixed trailing space in simulator wire resolution (dec.is_adc now works)
 - 🚀 **Performance**: Levelized simulator 60x faster than interpreter (6.5 KHz vs 109 Hz)
 - ✅ **Phase 2 Complete!** Minimal CPU with state machine
 - ✅ **Phase 1 Complete!** All foundation components built
-- 📦 **Phase 1.3**: mux4way8, mux8way8 (25 new tests)
-- 📦 **Phase 1.2**: alu8, not8, and8, or8, xor8 (66 tests)
-- 📦 **Phase 1.1**: register16, adder16, mux8, mux16, inc16

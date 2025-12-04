@@ -1,5 +1,5 @@
-; Minimal CPU - 8 Instruction CPU with State Machine
-; Implements: LDA #imm, LDX #imm, ADC #imm, STA $addr, JMP $addr, BEQ rel, HLT
+; Minimal CPU - 10 Instruction CPU with State Machine
+; Implements: LDA #imm, LDX #imm, ADC #imm, SBC #imm, STA $addr, STX $addr, JMP $addr, BEQ rel, BNE rel, HLT
 ;
 ; State Machine:
 ;   STATE_FETCH_OP  (0) - Fetch opcode, increment PC
@@ -7,7 +7,7 @@
 ;   STATE_FETCH_IMM (2) - Fetch immediate value (LDA)
 ;   STATE_FETCH_LO  (3) - Fetch address low byte (STA/JMP)
 ;   STATE_FETCH_HI  (4) - Fetch address high byte (STA/JMP)
-;   STATE_EXEC_STA  (5) - Execute STA (write to memory)
+;   STATE_EXEC_ST   (5) - Execute STA/STX (write to memory)
 ;   STATE_EXEC_JMP  (6) - Execute JMP (load PC)
 ;   STATE_HALTED    (7) - CPU halted
 ;
@@ -89,19 +89,21 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   addr_hi = register8(data_in, is_state_4, clk)
 
   ; ==========================================
-  ; Branch Offset (for BEQ)
+  ; Branch Offset (for BEQ/BNE)
   ; ==========================================
-  ; Latch offset byte during FETCH_IMM when instruction is BEQ
-  offset_load = and(is_state_2, dec.is_beq)
+  ; Latch offset byte during FETCH_IMM when instruction is BEQ or BNE
+  is_branch = or(dec.is_beq, dec.is_bne)
+  offset_load = and(is_state_2, is_branch)
   offset = register8(data_in, offset_load, clk)
 
   ; ==========================================
   ; Accumulator (A register)
   ; ==========================================
-  ; Load A during FETCH_IMM when instruction is LDA or ADC
-  a_load = and(is_state_2, or(dec.is_lda, dec.is_adc))
-  ; Mux between data_in (for LDA) and alu.result (for ADC)
-  a_data_src = mux8(data_in, alu.result, dec.is_adc)
+  ; Load A during FETCH_IMM when instruction is LDA, ADC, or SBC
+  is_alu_op = or(dec.is_adc, dec.is_sbc)
+  a_load = and(is_state_2, or(dec.is_lda, is_alu_op))
+  ; Mux between data_in (for LDA) and alu.result (for ADC/SBC)
+  a_data_src = mux8(data_in, alu.result, is_alu_op)
   a_out = register8(a_data_src, a_load, clk)
 
   ; ==========================================
@@ -116,7 +118,9 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; ==========================================
   ; ALU always computes (used when needed)
   ; For ADC: op=000 (ADD), a=A register, b=data_in, cin=carry flag
-  alu_op = concat(0, 0, 0)  ; 000 = ADD (for now, only ADC supported)
+  ; For SBC: op=001 (SUB), a=A register, b=data_in, cin=carry flag (borrow)
+  ; alu_op[0] = 1 for SBC, 0 for ADC
+  alu_op = concat(0, 0, dec.is_sbc)  ; 000 = ADD, 001 = SUB
 
   ; cin_for_alu: Carry input to ALU, only updates in FETCH_OP (state 0)
   ; This ensures cin stays constant throughout multi-cycle ADC execution
@@ -133,11 +137,11 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; Flag register: Use 4 separate DFFs instead of register8 to avoid bit indexing issues
   ; flags_out[0] = C (carry), flags_out[1] = Z (zero), flags_out[2] = N (negative), flags_out[3] = V (overflow)
   ; Flags are updated during:
-  ;   - DECODE (state 1) for ADC (capture flags before A register updates)
+  ;   - DECODE (state 1) for ADC/SBC (capture flags before A register updates)
   ;   - FETCH_IMM (state 2) for LDA/LDX (after loading data_in)
-  flags_load_adc = and(is_state_1, dec.is_adc)
+  flags_load_alu = and(is_state_1, is_alu_op)
   flags_load_lda_ldx = and(is_state_2, or(dec.is_lda, dec.is_ldx))
-  flags_load = or(flags_load_adc, flags_load_lda_ldx)
+  flags_load = or(flags_load_alu, flags_load_lda_ldx)
 
   ; Compute Z and N flags from data_in for LDA/LDX
   ; Z = 1 if data_in is all zeros (use NOR reduction)
@@ -157,9 +161,9 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   flag_n_src = mux(alu.n, data_in_n, flags_load_lda_ldx)
 
   ; Individual flag registers - load when flags_load is high, clear on reset
-  ; C flag: Only updated by ADC
-  flag_c_next = and(flags_load_adc, alu.cout)
-  flag_c_hold = and(not(flags_load_adc), flag_c_out)
+  ; C flag: Updated by ADC and SBC
+  flag_c_next = and(flags_load_alu, alu.cout)
+  flag_c_hold = and(not(flags_load_alu), flag_c_out)
   flag_c_before_reset = or(flag_c_next, flag_c_hold)
   flag_c_in = and(flag_c_before_reset, not(reset))
   flag_c_out = dff(flag_c_in, clk)
@@ -178,9 +182,9 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   flag_n_in = and(flag_n_before_reset, not(reset))
   flag_n_out = dff(flag_n_in, clk)
 
-  ; V flag: Only updated by ADC
-  flag_v_next = and(flags_load_adc, alu.vout)
-  flag_v_hold = and(not(flags_load_adc), flag_v_out)
+  ; V flag: Updated by ADC and SBC
+  flag_v_next = and(flags_load_alu, alu.vout)
+  flag_v_hold = and(not(flags_load_alu), flag_v_out)
   flag_v_before_reset = or(flag_v_next, flag_v_hold)
   flag_v_in = and(flag_v_before_reset, not(reset))
   flag_v_out = dff(flag_v_in, clk)
@@ -207,8 +211,8 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   branch_target = branch_result.sum
 
   ; Select between JMP target and branch target
-  ; Use branch_target when BEQ, otherwise use JMP target
-  pc_target = mux16(jmp_target, branch_target, dec.is_beq)
+  ; Use branch_target when BEQ or BNE, otherwise use JMP target
+  pc_target = mux16(jmp_target, branch_target, is_branch)
 
   ; Skip PC increment flag: set when in EXEC states, cleared after DECODE
   ; The flag needs to persist through FETCH_OP and DECODE states
@@ -228,11 +232,13 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   inc_in_decode_after_skip = and(is_state_1, skip_pc_inc)
   pc_inc = or(or(or(inc_in_fetch_op, inc_in_decode_after_skip), is_state_2), or(is_state_3, is_state_4))
 
-  ; PC load during JMP execute or BEQ branch taken
+  ; PC load during JMP execute or branch taken
   pc_load_jmp = is_state_6
   ; BEQ loads PC when in state 2, instruction is BEQ, and Z flag is set
   pc_load_beq = and(and(is_state_2, dec.is_beq), flag_z_out)
-  pc_load = or(pc_load_jmp, pc_load_beq)
+  ; BNE loads PC when in state 2, instruction is BNE, and Z flag is clear
+  pc_load_bne = and(and(is_state_2, dec.is_bne), not(flag_z_out))
+  pc_load = or(or(pc_load_jmp, pc_load_beq), pc_load_bne)
 
   pc_out = pc(clk, reset, pc_load, pc_inc, pc_target)
   
@@ -260,12 +266,13 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   from_3_to_4 = is_state_3
   
   ; From FETCH_HI (4):
-  ;   if STA -> EXEC_STA (5): next = 101
+  ;   if STA/STX -> EXEC_ST (5): next = 101
   ;   if JMP -> EXEC_JMP (6): next = 110
-  from_4_to_5 = and(is_state_4, dec.is_sta)
+  is_store = or(dec.is_sta, dec.is_stx)
+  from_4_to_5 = and(is_state_4, is_store)
   from_4_to_6 = and(is_state_4, dec.is_jmp)
 
-  ; From EXEC_STA (5) -> FETCH_OP (0): next = 000
+  ; From EXEC_ST (5) -> FETCH_OP (0): next = 000
   ; (PC already points to next instruction, skip increment via prev_was_exec)
   from_5_to_0 = is_state_5
 
@@ -301,15 +308,15 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; ==========================================
   ; Output Logic
   ; ==========================================
-  ; Address bus: PC during fetch, operand_addr during EXEC_STA
+  ; Address bus: PC during fetch, operand_addr during EXEC_ST
   operand_addr = concat(addr_hi, addr_lo)
   addr = mux16(pc_out, operand_addr, is_state_5)
-  
-  ; Data out: A register (for STA)
-  data_out = a_out
-  
-  ; Memory write: only during EXEC_STA
+
+  ; Data out: A register (for STA) or X register (for STX)
+  data_out = mux8(a_out, x_out, dec.is_stx)
+
+  ; Memory write: only during EXEC_ST
   mem_write = is_state_5
-  
+
   ; Halted output
   halted = is_state_7

@@ -1,13 +1,16 @@
 ; Instruction Decoder for Minimal CPU
-; Decodes opcodes into control signals for 7 instructions
+; Decodes opcodes into control signals for 10 instructions
 ;
 ; Opcodes (authentic 6502):
 ;   0xA9 = LDA #imm (2 bytes) = 10101001
 ;   0xA2 = LDX #imm (2 bytes) = 10100010
 ;   0x69 = ADC #imm (2 bytes) = 01101001
+;   0xE9 = SBC #imm (2 bytes) = 11101001
 ;   0x8D = STA $addr (3 bytes) = 10001101
+;   0x8E = STX $addr (3 bytes) = 10001110
 ;   0x4C = JMP $addr (3 bytes) = 01001100
 ;   0xF0 = BEQ rel (2 bytes) = 11110000
+;   0xD0 = BNE rel (2 bytes) = 11010000
 ;   0x02 = HLT (1 byte) = 00000010
 ;
 ; Inputs:
@@ -17,15 +20,18 @@
 ;   is_lda    - Opcode is LDA #imm
 ;   is_ldx    - Opcode is LDX #imm
 ;   is_adc    - Opcode is ADC #imm
+;   is_sbc    - Opcode is SBC #imm
 ;   is_sta    - Opcode is STA $addr
+;   is_stx    - Opcode is STX $addr
 ;   is_jmp    - Opcode is JMP $addr
 ;   is_beq    - Opcode is BEQ rel
+;   is_bne    - Opcode is BNE rel
 ;   is_hlt    - Opcode is HLT
 ;   needs_imm - Instruction needs immediate operand (1 byte)
 ;   needs_addr - Instruction needs address operand (2 bytes)
 ;   needs_rel - Instruction needs relative offset (1 signed byte)
 
-module decoder(opcode:8) -> (is_lda, is_ldx, is_adc, is_sta, is_jmp, is_beq, is_hlt, needs_imm, needs_addr, needs_rel):
+module decoder(opcode:8) -> (is_lda, is_ldx, is_adc, is_sbc, is_sta, is_stx, is_jmp, is_beq, is_bne, is_hlt, needs_imm, needs_addr, needs_rel):
   ; We need to compare opcode with specific values
   ; XOR with target: if match, all bits will be 0
   ; Then NOR-reduce to check if all bits are 0
@@ -167,11 +173,68 @@ module decoder(opcode:8) -> (is_lda, is_ldx, is_adc, is_sta, is_jmp, is_beq, is_
   hlt_any = or(hlt_any0123, hlt_any4567)
   is_hlt = not(hlt_any)
 
-  ; needs_imm: LDA, LDX, and ADC need immediate byte
-  needs_imm = or(or(is_lda, is_ldx), is_adc)
+  ; SBC #imm = 0xE9 = 11101001 binary
+  ; opcode[0]=1, [1]=0, [2]=0, [3]=1, [4]=0, [5]=1, [6]=1, [7]=1
+  sbc_b0 = xor(opcode[0], 1)
+  sbc_b1 = xor(opcode[1], 0)
+  sbc_b2 = xor(opcode[2], 0)
+  sbc_b3 = xor(opcode[3], 1)
+  sbc_b4 = xor(opcode[4], 0)
+  sbc_b5 = xor(opcode[5], 1)
+  sbc_b6 = xor(opcode[6], 1)
+  sbc_b7 = xor(opcode[7], 1)
+  sbc_any01 = or(sbc_b0, sbc_b1)
+  sbc_any23 = or(sbc_b2, sbc_b3)
+  sbc_any45 = or(sbc_b4, sbc_b5)
+  sbc_any67 = or(sbc_b6, sbc_b7)
+  sbc_any0123 = or(sbc_any01, sbc_any23)
+  sbc_any4567 = or(sbc_any45, sbc_any67)
+  sbc_any = or(sbc_any0123, sbc_any4567)
+  is_sbc = not(sbc_any)
 
-  ; needs_addr: STA and JMP need 16-bit address
-  needs_addr = or(is_sta, is_jmp)
+  ; STX $addr = 0x8E = 10001110 binary
+  ; opcode[0]=0, [1]=1, [2]=1, [3]=1, [4]=0, [5]=0, [6]=0, [7]=1
+  stx_b0 = xor(opcode[0], 0)
+  stx_b1 = xor(opcode[1], 1)
+  stx_b2 = xor(opcode[2], 1)
+  stx_b3 = xor(opcode[3], 1)
+  stx_b4 = xor(opcode[4], 0)
+  stx_b5 = xor(opcode[5], 0)
+  stx_b6 = xor(opcode[6], 0)
+  stx_b7 = xor(opcode[7], 1)
+  stx_any01 = or(stx_b0, stx_b1)
+  stx_any23 = or(stx_b2, stx_b3)
+  stx_any45 = or(stx_b4, stx_b5)
+  stx_any67 = or(stx_b6, stx_b7)
+  stx_any0123 = or(stx_any01, stx_any23)
+  stx_any4567 = or(stx_any45, stx_any67)
+  stx_any = or(stx_any0123, stx_any4567)
+  is_stx = not(stx_any)
 
-  ; needs_rel: BEQ needs relative offset (1 signed byte)
-  needs_rel = is_beq
+  ; BNE rel = 0xD0 = 11010000 binary
+  ; opcode[0]=0, [1]=0, [2]=0, [3]=0, [4]=1, [5]=0, [6]=1, [7]=1
+  bne_b0 = xor(opcode[0], 0)
+  bne_b1 = xor(opcode[1], 0)
+  bne_b2 = xor(opcode[2], 0)
+  bne_b3 = xor(opcode[3], 0)
+  bne_b4 = xor(opcode[4], 1)
+  bne_b5 = xor(opcode[5], 0)
+  bne_b6 = xor(opcode[6], 1)
+  bne_b7 = xor(opcode[7], 1)
+  bne_any01 = or(bne_b0, bne_b1)
+  bne_any23 = or(bne_b2, bne_b3)
+  bne_any45 = or(bne_b4, bne_b5)
+  bne_any67 = or(bne_b6, bne_b7)
+  bne_any0123 = or(bne_any01, bne_any23)
+  bne_any4567 = or(bne_any45, bne_any67)
+  bne_any = or(bne_any0123, bne_any4567)
+  is_bne = not(bne_any)
+
+  ; needs_imm: LDA, LDX, ADC, and SBC need immediate byte
+  needs_imm = or(or(or(is_lda, is_ldx), is_adc), is_sbc)
+
+  ; needs_addr: STA, STX, and JMP need 16-bit address
+  needs_addr = or(or(is_sta, is_stx), is_jmp)
+
+  ; needs_rel: BEQ and BNE need relative offset (1 signed byte)
+  needs_rel = or(is_beq, is_bne)
