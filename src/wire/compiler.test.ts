@@ -149,8 +149,12 @@ describe('Wire Compiler', () => {
         x = a
         y = x
         out = y`)
-      expect(mod.wires.has('x')).toBe(true)
-      expect(mod.wires.has('y')).toBe(true)
+      // x and y are aliases, not wires (they just rename existing wires)
+      expect(mod.aliases.has('x')).toBe(true)
+      expect(mod.aliases.has('y')).toBe(true)
+      // They should NOT be in the wires map
+      expect(mod.wires.has('x')).toBe(false)
+      expect(mod.wires.has('y')).toBe(false)
     })
 
     it('tracks correct widths for inputs', () => {

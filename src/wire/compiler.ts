@@ -68,7 +68,7 @@ export function compile(modules: Module[]): CompileResult {
   const compiled = new Map<string, CompiledModule>()
 
   for (const mod of modules) {
-    const result = compileModule(mod)
+    const result = compileModule(mod, compiled)
     if (!result.ok) return result
     compiled.set(mod.name, result.value)
   }
@@ -76,7 +76,7 @@ export function compile(modules: Module[]): CompileResult {
   return { ok: true, modules: compiled }
 }
 
-function compileModule(mod: Module): { ok: true; value: CompiledModule } | { ok: false; error: CompileError } {
+function compileModule(mod: Module, modules: Map<string, CompiledModule>): { ok: true; value: CompiledModule } | { ok: false; error: CompileError } {
   const nodes: Node[] = []
   const wires = new Map<string, number>()
   const aliases = new Map<string, string>()
@@ -100,7 +100,7 @@ function compileModule(mod: Module): { ok: true; value: CompiledModule } | { ok:
 
   // Process statements
   for (const stmt of mod.statements) {
-    const result = compileStatement(stmt, wires, nodes, aliases, mod.name)
+    const result = compileStatement(stmt, wires, nodes, aliases, mod.name, modules)
     if (!result.ok) return result
   }
 
@@ -133,24 +133,26 @@ function compileStatement(
   wires: Map<string, number>,
   nodes: Node[],
   aliases: Map<string, string>,
-  moduleName: string
+  moduleName: string,
+  modules: Map<string, CompiledModule>
 ): { ok: true } | { ok: false; error: CompileError } {
   const { target, expr } = stmt
 
   // Compile the expression
-  const result = compileExpr(expr, wires, nodes, moduleName)
+  const result = compileExpr(expr, wires, nodes, moduleName, aliases, modules)
   if (!result.ok) return result
 
   const { wire: sourceWire, width } = result.value
 
-  // Register the target wire if not already known
-  if (!wires.has(target)) {
-    wires.set(target, width)
-  }
-
   // If source and target are different, create an alias
+  // DON'T register the target as a wire - it's just an alias!
   if (sourceWire !== target) {
     aliases.set(target, sourceWire)
+  } else {
+    // Only register as a wire if target === source (no alias needed)
+    if (!wires.has(target)) {
+      wires.set(target, width)
+    }
   }
 
   return { ok: true }
@@ -165,12 +167,23 @@ function compileExpr(
   expr: Expr,
   wires: Map<string, number>,
   nodes: Node[],
-  moduleName: string
+  moduleName: string,
+  aliases?: Map<string, string>,
+  modules?: Map<string, CompiledModule>
 ): { ok: true; value: ExprResult } | { ok: false; error: CompileError } {
 
   switch (expr.kind) {
     case 'ident': {
-      const width = wires.get(expr.name) ?? 1
+      // Follow aliases to find the actual wire and get its width
+      let resolvedName = expr.name
+      if (aliases) {
+        const seen = new Set<string>()
+        while (aliases.has(resolvedName) && !seen.has(resolvedName)) {
+          seen.add(resolvedName)
+          resolvedName = aliases.get(resolvedName)!
+        }
+      }
+      const width = wires.get(resolvedName) ?? 1
       return { ok: true, value: { wire: expr.name, width } }
     }
 
@@ -193,7 +206,7 @@ function compileExpr(
       // Compile arguments first
       const argWires: string[] = []
       for (const arg of expr.args) {
-        const result = compileExpr(arg, wires, nodes, moduleName)
+        const result = compileExpr(arg, wires, nodes, moduleName, aliases, modules)
         if (!result.ok) return result
         argWires.push(result.value.wire)
       }
@@ -241,7 +254,7 @@ function compileExpr(
         const inputWidths: number[] = []
         let totalWidth = 0
         for (let i = 0; i < expr.args.length; i++) {
-          const argResult = compileExpr(expr.args[i], wires, nodes, moduleName)
+          const argResult = compileExpr(expr.args[i], wires, nodes, moduleName, aliases, modules)
           if (!argResult.ok) return argResult
           inputWidths.push(argResult.value.width)
           totalWidth += argResult.value.width
@@ -300,22 +313,32 @@ function compileExpr(
 
       // Other module calls - create a module instance node
       const outWire = genNodeId(`${expr.name}_out`)
-      wires.set(outWire, 1) // Will be updated when module is resolved
+
+      // Look up the module to get the correct output width
+      let outputWidth = 1
+      if (modules) {
+        const subModule = modules.get(expr.name)
+        if (subModule && subModule.outputs.length > 0) {
+          outputWidth = subModule.outputs[0].width
+        }
+      }
+
+      wires.set(outWire, outputWidth)
       nodes.push({
         id: genNodeId(expr.name),
         type: 'module',
         inputs: argWires,
         outputs: [outWire],
-        width: 1,
+        width: outputWidth,
         moduleName: expr.name,
       })
-      return { ok: true, value: { wire: outWire, width: 1 } }
+      return { ok: true, value: { wire: outWire, width: outputWidth } }
     }
 
     case 'member': {
       // For member access like `h.sum`, we need to handle multi-output modules
       // This is more complex - for now, create a synthetic wire name
-      const objResult = compileExpr(expr.object, wires, nodes, moduleName)
+      const objResult = compileExpr(expr.object, wires, nodes, moduleName, aliases, modules)
       if (!objResult.ok) return objResult
 
       const memberWire = `${objResult.value.wire}.${expr.field}`
@@ -324,7 +347,7 @@ function compileExpr(
     }
 
     case 'index': {
-      const objResult = compileExpr(expr.object, wires, nodes, moduleName)
+      const objResult = compileExpr(expr.object, wires, nodes, moduleName, aliases, modules)
       if (!objResult.ok) return objResult
 
       const outWire = genNodeId('index_out')
@@ -341,7 +364,7 @@ function compileExpr(
     }
 
     case 'slice': {
-      const objResult = compileExpr(expr.object, wires, nodes, moduleName)
+      const objResult = compileExpr(expr.object, wires, nodes, moduleName, aliases, modules)
       if (!objResult.ok) return objResult
 
       const width = expr.end - expr.start + 1
