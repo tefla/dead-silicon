@@ -345,8 +345,18 @@ function compileExpr(
       // Look up the width from the module definition
       let width = 1 // default
 
-      // Find the node that outputs to objResult.value.wire
-      const sourceNode = nodes.find(n => n.outputs.includes(objResult.value.wire))
+      // Resolve aliases first - objResult.value.wire might be an alias
+      let resolvedWire = objResult.value.wire
+      if (aliases) {
+        const seen = new Set<string>()
+        while (aliases.has(resolvedWire) && !seen.has(resolvedWire)) {
+          seen.add(resolvedWire)
+          resolvedWire = aliases.get(resolvedWire)!
+        }
+      }
+
+      // Find the node that outputs to the resolved wire
+      const sourceNode = nodes.find(n => n.outputs.includes(resolvedWire))
       if (sourceNode && sourceNode.type === 'module' && sourceNode.moduleName && modules) {
         const subModule = modules.get(sourceNode.moduleName)
         if (subModule) {

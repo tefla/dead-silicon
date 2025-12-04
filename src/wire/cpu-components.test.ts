@@ -225,6 +225,54 @@ module test_reg16(d:16, en, clk) -> q:16:
   })
 
   describe('adder16', () => {
+    // First test if adder8 works
+    it('SANITY: adder8 works correctly', () => {
+      const adder8Test = `
+${stdlib}
+`
+      const result = createSimulator(adder8Test, 'adder8')
+      expect(result.ok).toBe(true)
+      if (!result.ok) {
+        console.log('Compile error:', result.error)
+        return
+      }
+
+      const sim = result.simulator
+
+      // 0x12 + 0x01 = 0x13
+      sim.setInput('a', 0x12)
+      sim.setInput('b', 0x01)
+      sim.setInput('cin', 0)
+      sim.step()
+
+      expect(sim.getOutput('sum')).toBe(0x13)
+      expect(sim.getOutput('cout')).toBe(0)
+    })
+
+    // Test adder16 directly without wrapper
+    it('DIRECT TEST: adder16 works directly', () => {
+      const directTest = `
+${stdlib}
+`
+      const result = createSimulator(directTest, 'adder16')
+      expect(result.ok).toBe(true)
+      if (!result.ok) {
+        console.log('Compile error:', result.error)
+        return
+      }
+
+      const sim = result.simulator
+
+      // 0x1234 + 0x0100 = 0x1334
+      sim.setInput('a', 0x1234)
+      sim.setInput('b', 0x0100)
+      sim.setInput('cin', 0)
+      sim.step()
+
+      expect(sim.getOutput('sum')).toBe(0x1334)
+      expect(sim.getOutput('cout')).toBe(0)
+    })
+
     const testModule = `
 ${stdlib}
 
