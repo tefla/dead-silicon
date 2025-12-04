@@ -14,15 +14,31 @@ export class LevelizedSimulator implements ISimulator {
     // Wire values stored in a typed array for performance
     private values: Int32Array
 
-    // State for sequential elements
-    private prevClock: Map<string, number>  // DFF/RAM node id -> previous clock value
-    private dffState: Map<string, number>   // DFF node id -> latched value
-    private ramState: Map<string, Uint8Array>  // RAM node id -> memory contents
-    private romData: Map<string, Uint8Array>   // ROM node id -> data contents
+    // OPTIMIZATION: Typed array storage for sequential state (avoids Map lookups in hot path)
+    // DFF state stored in typed arrays with precomputed indices
+    private dffIndex: Map<string, number>     // node id -> array index (only used at construction)
+    private dffState: Int32Array              // index -> latched value
+    private dffPrevClock: Int32Array          // index -> previous clock value
+
+    // RAM/ROM still use Maps (less frequent access, variable size)
+    private ramIndex: Map<string, number>     // RAM node id -> array index
+    private ramPrevClock: Int32Array          // RAM index -> previous clock value
+    private ramState: Map<string, Uint8Array> // RAM node id -> memory contents
+    private romData: Map<string, Uint8Array>  // ROM node id -> data contents
+
+    // OPTIMIZATION: Cache last memory addresses to skip redundant reads
+    private lastMemAddr: Int32Array           // memory node index -> last address read
+    private memNodeIndex: Map<string, number> // memory node id -> array index
 
     // Precomputed data for fast evaluation
     private inputIndices: Map<string, number>  // Input name -> wire index
     private outputIndices: Map<string, number> // Output name -> wire index
+
+    // OPTIMIZATION: Precomputed arrays for hot loop - avoids Map lookups and property access
+    private dffOutputWires: Int32Array     // DFF index -> output wire index
+    private dffInputD: Int32Array          // DFF index -> D input wire index
+    private dffInputClk: Int32Array        // DFF index -> CLK input wire index
+
 
     constructor(module: CompiledModule, modules: Map<string, CompiledModule> = new Map()) {
         // Flatten the circuit
@@ -34,11 +50,50 @@ export class LevelizedSimulator implements ISimulator {
         // Allocate wire storage
         this.values = new Int32Array(this.circuit.wireCount)
 
-        // Initialize state maps
-        this.prevClock = new Map()
-        this.dffState = new Map()
+        // OPTIMIZATION: Build typed array indices for DFFs
+        this.dffIndex = new Map()
+        const seqNodes = this.sortResult.sequentialNodes
+        const dffCount = seqNodes.length
+        this.dffState = new Int32Array(dffCount)
+        this.dffPrevClock = new Int32Array(dffCount)
+        this.dffOutputWires = new Int32Array(dffCount)
+        this.dffInputD = new Int32Array(dffCount)
+        this.dffInputClk = new Int32Array(dffCount)
+
+        for (let i = 0; i < dffCount; i++) {
+            const node = seqNodes[i]
+            this.dffIndex.set(node.id, i)
+            this.dffOutputWires[i] = node.outputs[0]
+            this.dffInputD[i] = node.inputs[0]
+            this.dffInputClk[i] = node.inputs[1]
+        }
+
+        // Initialize RAM state
+        this.ramIndex = new Map()
         this.ramState = new Map()
+        let ramIdx = 0
+        for (const ram of this.circuit.ramNodes) {
+            this.ramIndex.set(ram.id, ramIdx++)
+            const size = 1 << (ram.addrWidth ?? 8)
+            this.ramState.set(ram.id, new Uint8Array(size))
+        }
+        this.ramPrevClock = new Int32Array(ramIdx)
+
+        // Initialize ROM state
         this.romData = new Map()
+        for (const rom of this.circuit.romNodes) {
+            const size = 1 << (rom.addrWidth ?? 8)
+            this.romData.set(rom.id, new Uint8Array(size))
+        }
+
+        // OPTIMIZATION: Build memory address cache
+        this.memNodeIndex = new Map()
+        let memIdx = 0
+        for (const node of this.sortResult.memoryNodes) {
+            this.memNodeIndex.set(node.id, memIdx++)
+        }
+        this.lastMemAddr = new Int32Array(memIdx)
+        this.lastMemAddr.fill(-1)  // -1 indicates "never read"
 
         // Build input/output index maps
         this.inputIndices = new Map()
@@ -51,16 +106,6 @@ export class LevelizedSimulator implements ISimulator {
             this.outputIndices.set(output.name, output.index)
         }
 
-        // Initialize RAM and ROM
-        for (const ram of this.circuit.ramNodes) {
-            const size = 1 << (ram.addrWidth ?? 8)
-            this.ramState.set(ram.id, new Uint8Array(size))
-        }
-
-        for (const rom of this.circuit.romNodes) {
-            const size = 1 << (rom.addrWidth ?? 8)
-            this.romData.set(rom.id, new Uint8Array(size))
-        }
     }
 
     setInput(name: string, value: number): void {
@@ -166,16 +211,20 @@ export class LevelizedSimulator implements ISimulator {
     step(): void {
         // Evaluation in topological order with proper clock edge handling
         //
-        // The key insight: after a clock edge, DFF outputs change, which requires
-        // re-evaluating combinational logic. We track if any edge occurred and
-        // do a second pass if needed.
+        // OPTIMIZATION: Use precomputed typed arrays to avoid Map lookups
+        // and property access in the hot path.
 
         const values = this.values
+        const dffState = this.dffState
+        const dffPrevClock = this.dffPrevClock
+        const dffOutputWires = this.dffOutputWires
+        const dffInputD = this.dffInputD
+        const dffInputClk = this.dffInputClk
+        const dffCount = dffState.length
 
-        // 1. First, output the current latched values from DFFs
-        //    This makes the previous clock cycle's values available to combinational logic
-        for (const node of this.sortResult.sequentialNodes) {
-            values[node.outputs[0]] = this.dffState.get(node.id) ?? 0
+        // 1. Output current latched values from DFFs
+        for (let i = 0; i < dffCount; i++) {
+            values[dffOutputWires[i]] = dffState[i]
         }
 
         // 2. Output current memory values (async read)
@@ -186,26 +235,35 @@ export class LevelizedSimulator implements ISimulator {
             this.evaluateNode(node, values)
         }
 
-        // 4. Handle clock edges for DFFs and RAM writes
-        let anyEdge = false
-        for (const node of this.sortResult.sequentialNodes) {
-            if (this.latchDff(node, values)) {
-                anyEdge = true
+        // 4. Handle clock edges for DFFs - inline for performance
+        //    Only set needsReevaluate if output value actually changes
+        let needsReevaluate = false
+        for (let i = 0; i < dffCount; i++) {
+            const clk = values[dffInputClk[i]]
+            const prevClk = dffPrevClock[i]
+            if (prevClk === 0 && clk === 1) {
+                const newValue = values[dffInputD[i]]
+                if (dffState[i] !== newValue) {
+                    dffState[i] = newValue
+                    needsReevaluate = true
+                }
             }
+            dffPrevClock[i] = clk
         }
 
+        // Handle RAM writes
         for (const node of this.sortResult.memoryNodes) {
             if (node.type === 'ram') {
                 if (this.handleRamWrite(node, values)) {
-                    anyEdge = true
+                    needsReevaluate = true
                 }
             }
         }
 
-        // 5. If any clock edge occurred, update outputs and re-evaluate
-        if (anyEdge) {
-            for (const node of this.sortResult.sequentialNodes) {
-                values[node.outputs[0]] = this.dffState.get(node.id) ?? 0
+        // 5. Only re-evaluate if DFF/RAM outputs actually changed
+        if (needsReevaluate) {
+            for (let i = 0; i < dffCount; i++) {
+                values[dffOutputWires[i]] = dffState[i]
             }
             this.evaluateMemoryReads(values)
             for (const node of this.sortResult.combinationalOrder) {
@@ -237,8 +295,7 @@ export class LevelizedSimulator implements ISimulator {
             case 'nand': {
                 const a = values[node.inputs[0]]
                 const b = values[node.inputs[1]]
-                const mask = node.width >= 32 ? 0xFFFFFFFF : (1 << node.width) - 1
-                values[node.outputs[0]] = (~(a & b)) & mask
+                values[node.outputs[0]] = (~(a & b)) & node.mask!
                 break
             }
 
@@ -250,9 +307,7 @@ export class LevelizedSimulator implements ISimulator {
 
             case 'slice': {
                 const val = values[node.inputs[0]]
-                const width = node.sliceEnd! - node.sliceStart! + 1
-                const mask = (1 << width) - 1
-                values[node.outputs[0]] = (val >> node.sliceStart!) & mask
+                values[node.outputs[0]] = (val >> node.sliceStart!) & node.mask!
                 break
             }
 
@@ -280,29 +335,15 @@ export class LevelizedSimulator implements ISimulator {
         }
     }
 
-    private latchDff(node: FlatNode, values: Int32Array): boolean {
-        const d = values[node.inputs[0]]
-        const clk = values[node.inputs[1]]
-        const prevClk = this.prevClock.get(node.id) ?? 0
-
-        let hadEdge = false
-
-        // Rising edge detection - latch new value
-        if (prevClk === 0 && clk === 1) {
-            this.dffState.set(node.id, d)
-            hadEdge = true
-        }
-
-        this.prevClock.set(node.id, clk)
-        return hadEdge
-    }
-
     private handleRamWrite(node: FlatNode, values: Int32Array): boolean {
+        const ramIdx = this.ramIndex.get(node.id)
+        if (ramIdx === undefined) return false
+
         const addr = values[node.inputs[0]]
         const data = values[node.inputs[1]]
         const write = values[node.inputs[2]]
         const clk = values[node.inputs[3]]
-        const prevClk = this.prevClock.get(node.id) ?? 0
+        const prevClk = this.ramPrevClock[ramIdx]
 
         let hadEdge = false
         const ram = this.ramState.get(node.id)
@@ -314,7 +355,7 @@ export class LevelizedSimulator implements ISimulator {
                     ram[addr] = data & 0xFF
                 }
             }
-            this.prevClock.set(node.id, clk)
+            this.ramPrevClock[ramIdx] = clk
         }
         return hadEdge
     }
@@ -327,8 +368,10 @@ export class LevelizedSimulator implements ISimulator {
 
     reset(): void {
         this.values.fill(0)
-        this.prevClock.clear()
-        this.dffState.clear()
+        this.dffState.fill(0)
+        this.dffPrevClock.fill(0)
+        this.ramPrevClock.fill(0)
+        this.lastMemAddr.fill(-1)
 
         for (const [, ram] of this.ramState) {
             ram.fill(0)

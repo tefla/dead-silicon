@@ -18,6 +18,9 @@ export interface FlatNode {
     sliceEnd?: number
     inputWidths?: number[]
     addrWidth?: number
+
+    // OPTIMIZATION: Precomputed mask for NAND and slice operations
+    mask?: number
 }
 
 export interface FlattenedCircuit {
@@ -218,7 +221,8 @@ function flattenModule(
                     type: 'nand',
                     inputs: [inA, inB],
                     outputs: [out],
-                    width: node.width
+                    width: node.width,
+                    mask: node.width >= 32 ? 0xFFFFFFFF : (1 << node.width) - 1
                 })
                 break
             }
@@ -256,6 +260,7 @@ function flattenModule(
             case 'slice': {
                 const input = resolveWire(node.inputs[0])
                 const out = resolveWire(node.outputs[0])
+                const sliceWidth = node.sliceEnd! - node.sliceStart! + 1
                 nodes.push({
                     id: `${prefix}${node.id}`,
                     type: 'slice',
@@ -263,7 +268,8 @@ function flattenModule(
                     outputs: [out],
                     width: node.width,
                     sliceStart: node.sliceStart,
-                    sliceEnd: node.sliceEnd
+                    sliceEnd: node.sliceEnd,
+                    mask: (1 << sliceWidth) - 1
                 })
                 break
             }

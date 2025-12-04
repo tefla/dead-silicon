@@ -203,11 +203,15 @@
 **Last Updated:** 2025-12-04
 
 ### Recent Accomplishments
+- 🚀 **Performance Optimization**: Levelized simulator now ~94x faster than interpreter (8.5 KHz vs 91 Hz)
+  - Typed array storage for DFF state (avoids Map lookups)
+  - Precomputed DFF wire indices for tight loops
+  - Skip re-evaluation when DFF values don't change
+  - Precomputed masks for NAND and slice operations
 - ✅ **Phase 3 Complete!** 13 instructions working (LDA, LDX, ADC, SBC, CMP, STA, STX, JMP, BEQ, BNE, INX, DEX, HLT)
 - 📦 **Phase 3.3**: CMP, INX, DEX with 18 new tests
 - 📦 **Phase 3.2**: STX, SBC, BNE with 16 new tests
 - ✅ **Phase 3.1 Complete!** 7 instructions working
 - 🔧 **Bug Fix**: Fixed trailing space in simulator wire resolution
-- 🚀 **Performance**: Levelized simulator 60x faster than interpreter (6.5 KHz vs 109 Hz)
 - ✅ **Phase 2 Complete!** Minimal CPU with state machine
 - ✅ **Phase 1 Complete!** All foundation components built

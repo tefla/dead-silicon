@@ -31,7 +31,7 @@ const program = [
   0x4C, 0x02, 0x00  // 4: JMP $0002
 ]
 
-const benchmarkCycles = 500
+const benchmarkCycles = 5000
 
 function runBenchmark(strategy: SimulatorStrategy) {
   console.log(`Benchmarking strategy: ${strategy}`)
