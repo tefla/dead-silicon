@@ -1,16 +1,19 @@
 ; Instruction Decoder for Minimal CPU
-; Decodes opcodes into control signals for 10 instructions
+; Decodes opcodes into control signals for 13 instructions
 ;
 ; Opcodes (authentic 6502):
 ;   0xA9 = LDA #imm (2 bytes) = 10101001
 ;   0xA2 = LDX #imm (2 bytes) = 10100010
 ;   0x69 = ADC #imm (2 bytes) = 01101001
 ;   0xE9 = SBC #imm (2 bytes) = 11101001
+;   0xC9 = CMP #imm (2 bytes) = 11001001
 ;   0x8D = STA $addr (3 bytes) = 10001101
 ;   0x8E = STX $addr (3 bytes) = 10001110
 ;   0x4C = JMP $addr (3 bytes) = 01001100
 ;   0xF0 = BEQ rel (2 bytes) = 11110000
 ;   0xD0 = BNE rel (2 bytes) = 11010000
+;   0xE8 = INX (1 byte) = 11101000
+;   0xCA = DEX (1 byte) = 11001010
 ;   0x02 = HLT (1 byte) = 00000010
 ;
 ; Inputs:
@@ -21,17 +24,21 @@
 ;   is_ldx    - Opcode is LDX #imm
 ;   is_adc    - Opcode is ADC #imm
 ;   is_sbc    - Opcode is SBC #imm
+;   is_cmp    - Opcode is CMP #imm
 ;   is_sta    - Opcode is STA $addr
 ;   is_stx    - Opcode is STX $addr
 ;   is_jmp    - Opcode is JMP $addr
 ;   is_beq    - Opcode is BEQ rel
 ;   is_bne    - Opcode is BNE rel
+;   is_inx    - Opcode is INX
+;   is_dex    - Opcode is DEX
 ;   is_hlt    - Opcode is HLT
 ;   needs_imm - Instruction needs immediate operand (1 byte)
 ;   needs_addr - Instruction needs address operand (2 bytes)
 ;   needs_rel - Instruction needs relative offset (1 signed byte)
+;   is_implied - Instruction has no operand (1 byte total)
 
-module decoder(opcode:8) -> (is_lda, is_ldx, is_adc, is_sbc, is_sta, is_stx, is_jmp, is_beq, is_bne, is_hlt, needs_imm, needs_addr, needs_rel):
+module decoder(opcode:8) -> (is_lda, is_ldx, is_adc, is_sbc, is_cmp, is_sta, is_stx, is_jmp, is_beq, is_bne, is_inx, is_dex, is_hlt, needs_imm, needs_addr, needs_rel, is_implied):
   ; We need to compare opcode with specific values
   ; XOR with target: if match, all bits will be 0
   ; Then NOR-reduce to check if all bits are 0
@@ -230,11 +237,71 @@ module decoder(opcode:8) -> (is_lda, is_ldx, is_adc, is_sbc, is_sta, is_stx, is_
   bne_any = or(bne_any0123, bne_any4567)
   is_bne = not(bne_any)
 
-  ; needs_imm: LDA, LDX, ADC, and SBC need immediate byte
-  needs_imm = or(or(or(is_lda, is_ldx), is_adc), is_sbc)
+  ; CMP #imm = 0xC9 = 11001001 binary
+  ; opcode[0]=1, [1]=0, [2]=0, [3]=1, [4]=0, [5]=0, [6]=1, [7]=1
+  cmp_b0 = xor(opcode[0], 1)
+  cmp_b1 = xor(opcode[1], 0)
+  cmp_b2 = xor(opcode[2], 0)
+  cmp_b3 = xor(opcode[3], 1)
+  cmp_b4 = xor(opcode[4], 0)
+  cmp_b5 = xor(opcode[5], 0)
+  cmp_b6 = xor(opcode[6], 1)
+  cmp_b7 = xor(opcode[7], 1)
+  cmp_any01 = or(cmp_b0, cmp_b1)
+  cmp_any23 = or(cmp_b2, cmp_b3)
+  cmp_any45 = or(cmp_b4, cmp_b5)
+  cmp_any67 = or(cmp_b6, cmp_b7)
+  cmp_any0123 = or(cmp_any01, cmp_any23)
+  cmp_any4567 = or(cmp_any45, cmp_any67)
+  cmp_any = or(cmp_any0123, cmp_any4567)
+  is_cmp = not(cmp_any)
+
+  ; INX = 0xE8 = 11101000 binary
+  ; opcode[0]=0, [1]=0, [2]=0, [3]=1, [4]=0, [5]=1, [6]=1, [7]=1
+  inx_b0 = xor(opcode[0], 0)
+  inx_b1 = xor(opcode[1], 0)
+  inx_b2 = xor(opcode[2], 0)
+  inx_b3 = xor(opcode[3], 1)
+  inx_b4 = xor(opcode[4], 0)
+  inx_b5 = xor(opcode[5], 1)
+  inx_b6 = xor(opcode[6], 1)
+  inx_b7 = xor(opcode[7], 1)
+  inx_any01 = or(inx_b0, inx_b1)
+  inx_any23 = or(inx_b2, inx_b3)
+  inx_any45 = or(inx_b4, inx_b5)
+  inx_any67 = or(inx_b6, inx_b7)
+  inx_any0123 = or(inx_any01, inx_any23)
+  inx_any4567 = or(inx_any45, inx_any67)
+  inx_any = or(inx_any0123, inx_any4567)
+  is_inx = not(inx_any)
+
+  ; DEX = 0xCA = 11001010 binary
+  ; opcode[0]=0, [1]=1, [2]=0, [3]=1, [4]=0, [5]=0, [6]=1, [7]=1
+  dex_b0 = xor(opcode[0], 0)
+  dex_b1 = xor(opcode[1], 1)
+  dex_b2 = xor(opcode[2], 0)
+  dex_b3 = xor(opcode[3], 1)
+  dex_b4 = xor(opcode[4], 0)
+  dex_b5 = xor(opcode[5], 0)
+  dex_b6 = xor(opcode[6], 1)
+  dex_b7 = xor(opcode[7], 1)
+  dex_any01 = or(dex_b0, dex_b1)
+  dex_any23 = or(dex_b2, dex_b3)
+  dex_any45 = or(dex_b4, dex_b5)
+  dex_any67 = or(dex_b6, dex_b7)
+  dex_any0123 = or(dex_any01, dex_any23)
+  dex_any4567 = or(dex_any45, dex_any67)
+  dex_any = or(dex_any0123, dex_any4567)
+  is_dex = not(dex_any)
+
+  ; needs_imm: LDA, LDX, ADC, SBC, and CMP need immediate byte
+  needs_imm = or(or(or(or(is_lda, is_ldx), is_adc), is_sbc), is_cmp)
 
   ; needs_addr: STA, STX, and JMP need 16-bit address
   needs_addr = or(or(is_sta, is_stx), is_jmp)
 
   ; needs_rel: BEQ and BNE need relative offset (1 signed byte)
   needs_rel = or(is_beq, is_bne)
+
+  ; is_implied: HLT, INX, DEX have no operand
+  is_implied = or(or(is_hlt, is_inx), is_dex)

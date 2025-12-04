@@ -4451,5 +4451,357 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
         expect(final.a).toBe(0xAB) // BNE not taken, LDA #$AB executed
       })
     })
+
+    // ==========================================
+    // CMP Instruction (Phase 3.3)
+    // ==========================================
+    describe('CMP instruction', () => {
+      it('sets Z flag when A equals operand', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$42, CMP #$42, HLT (should set Z=1)
+        const program = [
+          0xA9, 0x42,  // LDA #$42
+          0xC9, 0x42,  // CMP #$42
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x42) // A unchanged
+        expect(final.flags & 0b0010).toBe(0b0010) // Z flag set
+        expect(final.flags & 0b0001).toBe(1) // C flag set (A >= M)
+      })
+
+      it('clears Z flag when A does not equal operand', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = [
+          0xA9, 0x42,  // LDA #$42
+          0xC9, 0x41,  // CMP #$41
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x42) // A unchanged
+        expect(final.flags & 0b0010).toBe(0) // Z flag clear
+        expect(final.flags & 0b0001).toBe(1) // C flag set (A >= M)
+      })
+
+      it('sets N flag when result is negative', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // CMP does A - M. If A < M, result wraps negative (high bit set)
+        const program = [
+          0xA9, 0x10,  // LDA #$10
+          0xC9, 0x20,  // CMP #$20 (0x10 - 0x20 = 0xF0, N=1)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x10) // A unchanged
+        expect(final.flags & 0b0100).toBe(0b0100) // N flag set
+        expect(final.flags & 0b0001).toBe(0) // C flag clear (A < M)
+      })
+
+      it('sets C flag when A >= M', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = [
+          0xA9, 0x50,  // LDA #$50
+          0xC9, 0x30,  // CMP #$30 (0x50 >= 0x30, C=1)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.flags & 0b0001).toBe(1) // C flag set
+      })
+
+      it('clears C flag when A < M', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = [
+          0xA9, 0x30,  // LDA #$30
+          0xC9, 0x50,  // CMP #$50 (0x30 < 0x50, C=0)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.flags & 0b0001).toBe(0) // C flag clear
+      })
+
+      it('does not modify A register', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = [
+          0xA9, 0xFF,  // LDA #$FF
+          0xC9, 0x01,  // CMP #$01
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0xFF) // A unchanged
+      })
+
+      it('CMP then BEQ branches on equal', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // LDA #$10, CMP #$10, BEQ +3, LDA #$AA, HLT, LDA #$BB, HLT
+        // BEQ is at address 4, so after BEQ the PC is at 6
+        // Offset +3 means jump to 6+3=9, where LDA #$BB starts
+        const program = new Array(12).fill(0x02)
+        program[0] = 0xA9; program[1] = 0x10  // LDA #$10
+        program[2] = 0xC9; program[3] = 0x10  // CMP #$10 (Z=1)
+        program[4] = 0xF0; program[5] = 0x03  // BEQ +3 (taken, skip 3 bytes to addr 9)
+        program[6] = 0xA9; program[7] = 0xAA  // LDA #$AA (skipped)
+        program[8] = 0x02                      // HLT (skipped)
+        program[9] = 0xA9; program[10] = 0xBB // LDA #$BB
+        program[11] = 0x02                     // HLT
+
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0xBB) // Branched to LDA #$BB
+      })
+    })
+
+    // ==========================================
+    // INX Instruction (Phase 3.3)
+    // ==========================================
+    describe('INX instruction', () => {
+      it('increments X register by 1', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDX #$05, INX, HLT
+        const program = [
+          0xA2, 0x05,  // LDX #$05
+          0xE8,        // INX
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x06)
+      })
+
+      it('wraps from 0xFF to 0x00', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = [
+          0xA2, 0xFF,  // LDX #$FF
+          0xE8,        // INX
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x00)
+        expect(final.flags & 0b0010).toBe(0b0010) // Z flag set
+      })
+
+      it('sets N flag when result is >= 0x80', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = [
+          0xA2, 0x7F,  // LDX #$7F
+          0xE8,        // INX (X becomes 0x80)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x80)
+        expect(final.flags & 0b0100).toBe(0b0100) // N flag set
+      })
+
+      it('clears N flag when result is < 0x80', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = [
+          0xA2, 0x00,  // LDX #$00
+          0xE8,        // INX (X becomes 0x01)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x01)
+        expect(final.flags & 0b0100).toBe(0) // N flag clear
+        expect(final.flags & 0b0010).toBe(0) // Z flag clear
+      })
+
+      it('multiple INX operations', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = [
+          0xA2, 0x00,  // LDX #$00
+          0xE8,        // INX (X=1)
+          0xE8,        // INX (X=2)
+          0xE8,        // INX (X=3)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x03)
+      })
+    })
+
+    // ==========================================
+    // DEX Instruction (Phase 3.3)
+    // ==========================================
+    describe('DEX instruction', () => {
+      it('decrements X register by 1', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDX #$05, DEX, HLT
+        const program = [
+          0xA2, 0x05,  // LDX #$05
+          0xCA,        // DEX
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x04)
+      })
+
+      it('wraps from 0x00 to 0xFF', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = [
+          0xA2, 0x00,  // LDX #$00
+          0xCA,        // DEX
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0xFF)
+        expect(final.flags & 0b0100).toBe(0b0100) // N flag set
+      })
+
+      it('sets Z flag when result is zero', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = [
+          0xA2, 0x01,  // LDX #$01
+          0xCA,        // DEX (X becomes 0x00)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x00)
+        expect(final.flags & 0b0010).toBe(0b0010) // Z flag set
+      })
+
+      it('sets N flag when result is >= 0x80', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = [
+          0xA2, 0x80,  // LDX #$80
+          0xCA,        // DEX (X becomes 0x7F)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x7F)
+        expect(final.flags & 0b0100).toBe(0) // N flag clear (0x7F < 0x80)
+      })
+
+      it('multiple DEX operations', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        const program = [
+          0xA2, 0x05,  // LDX #$05
+          0xCA,        // DEX (X=4)
+          0xCA,        // DEX (X=3)
+          0xCA,        // DEX (X=2)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 30)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x02)
+      })
+
+      it('DEX loop with BNE', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Simple countdown loop: LDX #$03, loop: DEX, BNE loop, HLT
+        // Should execute DEX 3 times until X=0
+        const program = [
+          0xA2, 0x03,  // LDX #$03
+          0xCA,        // DEX (loop start)
+          0xD0, 0xFD,  // BNE -3 (back to DEX)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program, 50)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x00) // Loop finished when X reached 0
+      })
+    })
   })
 })

@@ -2,9 +2,9 @@
 
 **Goal**: Expand from 4 to 10+ instructions with ALU, flags, and X register
 
-**Current State**: cpu_minimal.wire implements 10 instructions (LDA, LDX, ADC, SBC, STA, STX, JMP, BEQ, BNE, HLT) – 1297/1297 tests passing
+**Current State**: cpu_minimal.wire implements 13 instructions (LDA, LDX, ADC, SBC, CMP, STA, STX, JMP, BEQ, BNE, INX, DEX, HLT) – 1315/1315 tests passing
 
-**Progress Update (2025-12-04)**: Phase 3.2 complete. All 10 core instructions working with full arithmetic, store, jump, and conditional branching. STX stores X register to memory, SBC performs subtraction with borrow, BNE branches when Z=0. 16 new tests added for Phase 3.2 instructions. Next up: CMP, INX, DEX for Phase 3.3.
+**Progress Update (2025-12-04)**: Phase 3 complete! All 13 instructions working. CMP compares A register without storing result, INX/DEX increment/decrement X register. Implied addressing mode (1-byte instructions) implemented for INX/DEX. 18 new tests for Phase 3.3. Ready for Phase 4 (logic instructions).
 
 ---
 
@@ -134,7 +134,7 @@ Phase 3.2 Complete:
 - [x] 212 CPU tests passing (1297 total)
 
 Phase 3.3 Complete:
-- [ ] 12-13 instructions working
-- [ ] Comparison (CMP)
-- [ ] Register inc/dec (INX, DEX)
-- [ ] ~180-200 tests passing
+- [x] 13 instructions working
+- [x] Comparison (CMP) - 7 tests
+- [x] Register inc/dec (INX, DEX) - 11 tests
+- [x] 230 CPU tests passing (1315 total)

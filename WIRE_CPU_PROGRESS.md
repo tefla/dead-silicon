@@ -99,15 +99,16 @@
 - [x] Extend flag behaviors for SBC/branches
 - [x] Write and verify tests (16 new tests)
 
-### 3.3: Polish & Extras
-- [ ] CMP #imm
-- [ ] INX, DEX
-- [ ] Additional branch/regression tests
+### 3.3: Polish & Extras ✅
+- [x] CMP #imm (7 tests)
+- [x] INX (5 tests)
+- [x] DEX (6 tests)
+- [x] Additional branch/regression tests
 
-**Phase 3.2 Complete When:**
-- [x] 10 instructions working (LDA, LDX, ADC, SBC, STA, STX, JMP, BEQ, BNE, HLT)
-- [x] 212 CPU component tests passing (1297 total project tests)
-- [x] Arithmetic and branching work
+**Phase 3 Complete When:**
+- [x] 13 instructions working (LDA, LDX, ADC, SBC, CMP, STA, STX, JMP, BEQ, BNE, INX, DEX, HLT)
+- [x] 230 CPU component tests passing (1315 total project tests)
+- [x] Arithmetic, comparison, and branching work
 
 ---
 
@@ -196,16 +197,17 @@
 
 ## Current Status
 
-**Active Phase:** Phase 3.3 (polish & extras)
-**Current Task:** CMP, INX, DEX instructions
-**Tests Passing:** 1297 total (212 CPU component tests)
+**Active Phase:** Phase 4 (complete instruction set)
+**Current Task:** Logic instructions (AND, ORA, EOR)
+**Tests Passing:** 1315 total (230 CPU component tests)
 **Last Updated:** 2025-12-04
 
 ### Recent Accomplishments
-- ✅ **Phase 3.2 Complete!** 10 instructions working (LDA, LDX, ADC, SBC, STA, STX, JMP, BEQ, BNE, HLT)
+- ✅ **Phase 3 Complete!** 13 instructions working (LDA, LDX, ADC, SBC, CMP, STA, STX, JMP, BEQ, BNE, INX, DEX, HLT)
+- 📦 **Phase 3.3**: CMP, INX, DEX with 18 new tests
 - 📦 **Phase 3.2**: STX, SBC, BNE with 16 new tests
 - ✅ **Phase 3.1 Complete!** 7 instructions working
-- 🔧 **Bug Fix**: Fixed trailing space in simulator wire resolution (dec.is_adc now works)
+- 🔧 **Bug Fix**: Fixed trailing space in simulator wire resolution
 - 🚀 **Performance**: Levelized simulator 60x faster than interpreter (6.5 KHz vs 109 Hz)
 - ✅ **Phase 2 Complete!** Minimal CPU with state machine
 - ✅ **Phase 1 Complete!** All foundation components built

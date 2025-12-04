@@ -1,5 +1,5 @@
-; Minimal CPU - 10 Instruction CPU with State Machine
-; Implements: LDA #imm, LDX #imm, ADC #imm, SBC #imm, STA $addr, STX $addr, JMP $addr, BEQ rel, BNE rel, HLT
+; Minimal CPU - 13 Instruction CPU with State Machine
+; Implements: LDA #imm, LDX #imm, ADC #imm, SBC #imm, CMP #imm, STA $addr, STX $addr, JMP $addr, BEQ rel, BNE rel, INX, DEX, HLT
 ;
 ; State Machine:
 ;   STATE_FETCH_OP  (0) - Fetch opcode, increment PC
@@ -99,8 +99,10 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; ==========================================
   ; Accumulator (A register)
   ; ==========================================
-  ; Load A during FETCH_IMM when instruction is LDA, ADC, or SBC
+  ; Load A during FETCH_IMM when instruction is LDA, ADC, or SBC (NOT CMP)
+  ; CMP sets flags like SBC but doesn't store result
   is_alu_op = or(dec.is_adc, dec.is_sbc)
+  is_alu_or_cmp = or(is_alu_op, dec.is_cmp)
   a_load = and(is_state_2, or(dec.is_lda, is_alu_op))
   ; Mux between data_in (for LDA) and alu.result (for ADC/SBC)
   a_data_src = mux8(data_in, alu.result, is_alu_op)
@@ -110,8 +112,24 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; X Index Register
   ; ==========================================
   ; Load X during FETCH_IMM when instruction is LDX
-  x_load = and(is_state_2, dec.is_ldx)
-  x_out = register8(data_in, x_load, clk)
+  ; Load X during DECODE when instruction is INX or DEX (implied addressing)
+  is_inx_dex = or(dec.is_inx, dec.is_dex)
+  x_load_ldx = and(is_state_2, dec.is_ldx)
+  x_load_inx_dex = and(is_state_1, is_inx_dex)
+  x_load = or(x_load_ldx, x_load_inx_dex)
+
+  ; Compute X+1 and X-1 for INX/DEX
+  ; INX: X + 1 (use adder8 with b=1, cin=0)
+  ; DEX: X - 1 (use adder8 with b=0xFF, cin=0 which is X + 255 = X - 1 in 2's complement)
+  ; Actually simpler: use adder8 with b=1/0xFF depending on instruction
+  inx_addend = concat(0, 0, 0, 0, 0, 0, 0, 1)  ; 0x01
+  dex_addend = concat(1, 1, 1, 1, 1, 1, 1, 1)  ; 0xFF (-1 in 2's complement)
+  x_addend = mux8(inx_addend, dex_addend, dec.is_dex)
+  x_inc_result = adder8(x_out, x_addend, 0)
+
+  ; Select source for X: data_in for LDX, x_inc_result for INX/DEX
+  x_data_src = mux8(data_in, x_inc_result.sum, is_inx_dex)
+  x_out = register8(x_data_src, x_load, clk)
 
   ; ==========================================
   ; ALU and Flags
@@ -119,29 +137,36 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; ALU always computes (used when needed)
   ; For ADC: op=000 (ADD), a=A register, b=data_in, cin=carry flag
   ; For SBC: op=001 (SUB), a=A register, b=data_in, cin=carry flag (borrow)
-  ; alu_op[0] = 1 for SBC, 0 for ADC
-  alu_op = concat(0, 0, dec.is_sbc)  ; 000 = ADD, 001 = SUB
+  ; For CMP: op=001 (SUB), a=A register, b=data_in, cin=1 (no borrow)
+  ; alu_op[0] = 1 for SBC/CMP, 0 for ADC
+  is_sub_op = or(dec.is_sbc, dec.is_cmp)
+  alu_op = concat(0, 0, is_sub_op)  ; 000 = ADD, 001 = SUB
 
   ; cin_for_alu: Carry input to ALU, only updates in FETCH_OP (state 0)
   ; This ensures cin stays constant throughout multi-cycle ADC execution
+  ; For CMP, always use cin=1 (no borrow, pure comparison)
   cin_update = is_state_0
   cin_next = and(cin_update, flag_c_out)
-  cin_hold = and(not(cin_update), cin_for_alu)
+  cin_hold = and(not(cin_update), cin_for_alu_saved)
   cin_for_alu_in = or(cin_next, cin_hold)
   cin_for_alu_before_reset = dff(cin_for_alu_in, clk)
   ; Force cin=0 during reset
-  cin_for_alu = and(cin_for_alu_before_reset, not(reset))
+  cin_for_alu_saved = and(cin_for_alu_before_reset, not(reset))
+  ; For CMP, override with 1; for ADC/SBC, use saved carry
+  cin_for_alu = mux(cin_for_alu_saved, 1, dec.is_cmp)
 
   alu = alu8(a_out, data_in, alu_op, cin_for_alu)
 
   ; Flag register: Use 4 separate DFFs instead of register8 to avoid bit indexing issues
   ; flags_out[0] = C (carry), flags_out[1] = Z (zero), flags_out[2] = N (negative), flags_out[3] = V (overflow)
   ; Flags are updated during:
-  ;   - DECODE (state 1) for ADC/SBC (capture flags before A register updates)
+  ;   - DECODE (state 1) for ADC/SBC/CMP (capture flags before A register updates)
+  ;   - DECODE (state 1) for INX/DEX (implied mode, single-cycle)
   ;   - FETCH_IMM (state 2) for LDA/LDX (after loading data_in)
-  flags_load_alu = and(is_state_1, is_alu_op)
+  flags_load_alu = and(is_state_1, is_alu_or_cmp)
+  flags_load_inx_dex = and(is_state_1, is_inx_dex)
   flags_load_lda_ldx = and(is_state_2, or(dec.is_lda, dec.is_ldx))
-  flags_load = or(flags_load_alu, flags_load_lda_ldx)
+  flags_load = or(or(flags_load_alu, flags_load_inx_dex), flags_load_lda_ldx)
 
   ; Compute Z and N flags from data_in for LDA/LDX
   ; Z = 1 if data_in is all zeros (use NOR reduction)
@@ -156,26 +181,43 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; N = bit 7 of data_in
   data_in_n = data_in[7]
 
-  ; Select flag sources: ALU for ADC, data_in for LDA/LDX
-  flag_z_src = mux(alu.z, data_in_z, flags_load_lda_ldx)
-  flag_n_src = mux(alu.n, data_in_n, flags_load_lda_ldx)
+  ; Compute Z and N flags from x_inc_result for INX/DEX
+  x_res_or01 = or(x_inc_result.sum[0], x_inc_result.sum[1])
+  x_res_or23 = or(x_inc_result.sum[2], x_inc_result.sum[3])
+  x_res_or45 = or(x_inc_result.sum[4], x_inc_result.sum[5])
+  x_res_or67 = or(x_inc_result.sum[6], x_inc_result.sum[7])
+  x_res_or0123 = or(x_res_or01, x_res_or23)
+  x_res_or4567 = or(x_res_or45, x_res_or67)
+  x_res_any = or(x_res_or0123, x_res_or4567)
+  x_res_z = not(x_res_any)
+  x_res_n = x_inc_result.sum[7]
+
+  ; Select flag sources:
+  ; - ALU for ADC/SBC/CMP
+  ; - x_inc_result for INX/DEX
+  ; - data_in for LDA/LDX
+  flag_z_from_alu_or_x = mux(alu.z, x_res_z, is_inx_dex)
+  flag_n_from_alu_or_x = mux(alu.n, x_res_n, is_inx_dex)
+  flag_z_src = mux(flag_z_from_alu_or_x, data_in_z, flags_load_lda_ldx)
+  flag_n_src = mux(flag_n_from_alu_or_x, data_in_n, flags_load_lda_ldx)
 
   ; Individual flag registers - load when flags_load is high, clear on reset
-  ; C flag: Updated by ADC and SBC
-  flag_c_next = and(flags_load_alu, alu.cout)
-  flag_c_hold = and(not(flags_load_alu), flag_c_out)
+  ; C flag: Updated by ADC, SBC, and CMP (NOT INX/DEX)
+  flags_load_c = or(flags_load_alu, 0)  ; Only ALU ops update carry
+  flag_c_next = and(flags_load_c, alu.cout)
+  flag_c_hold = and(not(flags_load_c), flag_c_out)
   flag_c_before_reset = or(flag_c_next, flag_c_hold)
   flag_c_in = and(flag_c_before_reset, not(reset))
   flag_c_out = dff(flag_c_in, clk)
 
-  ; Z flag: Updated by ADC, LDA, LDX
+  ; Z flag: Updated by ADC, SBC, CMP, LDA, LDX, INX, DEX
   flag_z_next = and(flags_load, flag_z_src)
   flag_z_hold = and(not(flags_load), flag_z_out)
   flag_z_before_reset = or(flag_z_next, flag_z_hold)
   flag_z_in = and(flag_z_before_reset, not(reset))
   flag_z_out = dff(flag_z_in, clk)
 
-  ; N flag: Updated by ADC, LDA, LDX
+  ; N flag: Updated by ADC, SBC, CMP, LDA, LDX, INX, DEX
   flag_n_next = and(flags_load, flag_n_src)
   flag_n_hold = and(not(flags_load), flag_n_out)
   flag_n_before_reset = or(flag_n_next, flag_n_hold)
@@ -251,12 +293,14 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   from_0_to_1 = is_state_0
   
   ; From DECODE (1):
-  ;   if LDA/LDX/ADC/BEQ -> FETCH_IMM (2): next = 010
-  ;   if STA/JMP -> FETCH_LO (3): next = 011
+  ;   if LDA/LDX/ADC/CMP/BEQ/BNE -> FETCH_IMM (2): next = 010
+  ;   if STA/STX/JMP -> FETCH_LO (3): next = 011
+  ;   if INX/DEX -> FETCH_OP (0): next = 000 (implied, single-cycle)
   ;   if HLT -> HALTED (7): next = 111
   needs_byte = or(dec.needs_imm, dec.needs_rel)
   from_1_to_2 = and(is_state_1, needs_byte)
   from_1_to_3 = and(is_state_1, dec.needs_addr)
+  from_1_to_0 = and(is_state_1, is_inx_dex)
   from_1_to_7 = and(is_state_1, dec.is_hlt)
   
   ; From FETCH_IMM (2) -> FETCH_OP (0): next = 000
