@@ -29,27 +29,27 @@
   - [x] Implement module (uses adder16 with constant 1)
   - [x] Verify all tests pass
 
-### 1.2: Extended ALU
-- [ ] `alu8.wire` - 8-bit ALU with 5 operations
-  - [ ] Write tests (ADD, SUB, AND, OR, XOR)
-  - [ ] Implement module
-  - [ ] Test flag generation (Z, N, C, V)
-  - [ ] Verify all tests pass
+### 1.2: Extended ALU ✅
+- [x] `alu8.wire` - 8-bit ALU with 5 operations
+  - [x] Write tests (ADD, SUB, AND, OR, XOR)
+  - [x] Implement module
+  - [x] Test flag generation (Z, N, C, V)
+  - [x] Verify all tests pass (66 new tests)
 
-### 1.3: Multi-Way Multiplexers
-- [ ] `mux4way8.wire` - 4-to-1 mux (8-bit)
-  - [ ] Write tests
-  - [ ] Implement module
-  - [ ] Verify all tests pass
-- [ ] `mux8way8.wire` - 8-to-1 mux (8-bit)
-  - [ ] Write tests
-  - [ ] Implement module
-  - [ ] Verify all tests pass
+### 1.3: Multi-Way Multiplexers ✅
+- [x] `mux4way8.wire` - 4-to-1 mux (8-bit)
+  - [x] Write tests (10 tests)
+  - [x] Implement module
+  - [x] Verify all tests pass
+- [x] `mux8way8.wire` - 8-to-1 mux (8-bit)
+  - [x] Write tests (15 tests)
+  - [x] Implement module
+  - [x] Verify all tests pass
 
 **Phase 1 Complete When:**
-- [x] All components tested individually (Phase 1.1 done)
-- [x] ~40-50 unit tests passing (31 CPU tests + extensive stdlib tests)
-- [ ] Components ready for CPU integration (need Phase 1.2 ALU, Phase 1.3 muxes)
+- [x] All components tested individually
+- [x] ~40-50 unit tests passing (122 CPU component tests!)
+- [x] Components ready for CPU integration
 
 ---
 
@@ -189,13 +189,14 @@
 
 ## Current Status
 
-**Active Phase:** Phase 1.2
-**Current Task:** Phase 1.1 complete! Ready to build alu8.wire
-**Tests Passing:** 475 (31 CPU component tests) / ~250 target
+**Active Phase:** Phase 2
+**Current Task:** Phase 1 complete! Ready to build minimal CPU
+**Tests Passing:** 566 (122 CPU component tests) / ~250 target
 **Last Updated:** 2025-12-04
 
 ### Recent Accomplishments
-- ✅ **Phase 1.1 Complete**: All 16-bit building blocks implemented
-- 🔧 **Critical Bug Fix**: Compiler member access now resolves aliases before width lookup
-- 📦 **New Modules**: adder16, mux8, mux16, inc16
-- ✅ **Test Coverage**: 23 new tests, all 475 Wire tests passing
+- ✅ **Phase 1 Complete!** All foundation components built
+- 📦 **Phase 1.3**: mux4way8, mux8way8 (25 new tests)
+- 📦 **Phase 1.2**: alu8, not8, and8, or8, xor8 (66 tests)
+- 📦 **Phase 1.1**: register16, adder16, mux8, mux16, inc16
+- ✅ **Test Coverage**: 122 CPU component tests, all passing

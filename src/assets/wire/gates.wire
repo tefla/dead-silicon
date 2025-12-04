@@ -89,3 +89,51 @@ module and3(a, b, c) -> out:
 module or3(a, b, c) -> out:
   ab = or(a, b)
   out = or(ab, c)
+
+; 8-bit NOT gate
+module not8(a:8) -> out:8:
+  out0 = not(a[0])
+  out1 = not(a[1])
+  out2 = not(a[2])
+  out3 = not(a[3])
+  out4 = not(a[4])
+  out5 = not(a[5])
+  out6 = not(a[6])
+  out7 = not(a[7])
+  out = concat(out7, out6, out5, out4, out3, out2, out1, out0)
+
+; 8-bit AND gate
+module and8(a:8, b:8) -> out:8:
+  out0 = and(a[0], b[0])
+  out1 = and(a[1], b[1])
+  out2 = and(a[2], b[2])
+  out3 = and(a[3], b[3])
+  out4 = and(a[4], b[4])
+  out5 = and(a[5], b[5])
+  out6 = and(a[6], b[6])
+  out7 = and(a[7], b[7])
+  out = concat(out7, out6, out5, out4, out3, out2, out1, out0)
+
+; 8-bit OR gate
+module or8(a:8, b:8) -> out:8:
+  out0 = or(a[0], b[0])
+  out1 = or(a[1], b[1])
+  out2 = or(a[2], b[2])
+  out3 = or(a[3], b[3])
+  out4 = or(a[4], b[4])
+  out5 = or(a[5], b[5])
+  out6 = or(a[6], b[6])
+  out7 = or(a[7], b[7])
+  out = concat(out7, out6, out5, out4, out3, out2, out1, out0)
+
+; 8-bit XOR gate
+module xor8(a:8, b:8) -> out:8:
+  out0 = xor(a[0], b[0])
+  out1 = xor(a[1], b[1])
+  out2 = xor(a[2], b[2])
+  out3 = xor(a[3], b[3])
+  out4 = xor(a[4], b[4])
+  out5 = xor(a[5], b[5])
+  out6 = xor(a[6], b[6])
+  out7 = xor(a[7], b[7])
+  out = concat(out7, out6, out5, out4, out3, out2, out1, out0)
