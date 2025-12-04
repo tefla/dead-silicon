@@ -2,7 +2,8 @@
 // Two-pass assembler: collect symbols, then emit bytes
 
 import { lex } from './lexer'
-import { parse, Statement, InstructionStmt, DirectiveStmt } from './parser'
+import { parse } from './parser'
+import type { Statement, InstructionStmt, DirectiveStmt } from './parser'
 import { getOpcodeInfo, INSTRUCTIONS } from './opcodes'
 
 export interface AssembledProgram {
