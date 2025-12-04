@@ -1,11 +1,13 @@
 ; Instruction Decoder for Minimal CPU
-; Decodes opcodes into control signals for 5 instructions
+; Decodes opcodes into control signals for 7 instructions
 ;
 ; Opcodes (authentic 6502):
 ;   0xA9 = LDA #imm (2 bytes) = 10101001
 ;   0xA2 = LDX #imm (2 bytes) = 10100010
+;   0x69 = ADC #imm (2 bytes) = 01101001
 ;   0x8D = STA $addr (3 bytes) = 10001101
 ;   0x4C = JMP $addr (3 bytes) = 01001100
+;   0xF0 = BEQ rel (2 bytes) = 11110000
 ;   0x02 = HLT (1 byte) = 00000010
 ;
 ; Inputs:
@@ -14,13 +16,16 @@
 ; Outputs:
 ;   is_lda    - Opcode is LDA #imm
 ;   is_ldx    - Opcode is LDX #imm
+;   is_adc    - Opcode is ADC #imm
 ;   is_sta    - Opcode is STA $addr
 ;   is_jmp    - Opcode is JMP $addr
+;   is_beq    - Opcode is BEQ rel
 ;   is_hlt    - Opcode is HLT
 ;   needs_imm - Instruction needs immediate operand (1 byte)
 ;   needs_addr - Instruction needs address operand (2 bytes)
+;   needs_rel - Instruction needs relative offset (1 signed byte)
 
-module decoder(opcode:8) -> (is_lda, is_ldx, is_sta, is_jmp, is_hlt, needs_imm, needs_addr):
+module decoder(opcode:8) -> (is_lda, is_ldx, is_adc, is_sta, is_jmp, is_beq, is_hlt, needs_imm, needs_addr, needs_rel):
   ; We need to compare opcode with specific values
   ; XOR with target: if match, all bits will be 0
   ; Then NOR-reduce to check if all bits are 0
@@ -67,6 +72,25 @@ module decoder(opcode:8) -> (is_lda, is_ldx, is_sta, is_jmp, is_hlt, needs_imm, 
   ldx_any = or(ldx_any0123, ldx_any4567)
   is_ldx = not(ldx_any)
 
+  ; ADC #imm = 0x69 = 01101001 binary
+  ; opcode[0]=1, [1]=0, [2]=0, [3]=1, [4]=0, [5]=1, [6]=1, [7]=0
+  adc_b0 = xor(opcode[0], 1)
+  adc_b1 = xor(opcode[1], 0)
+  adc_b2 = xor(opcode[2], 0)
+  adc_b3 = xor(opcode[3], 1)
+  adc_b4 = xor(opcode[4], 0)
+  adc_b5 = xor(opcode[5], 1)
+  adc_b6 = xor(opcode[6], 1)
+  adc_b7 = xor(opcode[7], 0)
+  adc_any01 = or(adc_b0, adc_b1)
+  adc_any23 = or(adc_b2, adc_b3)
+  adc_any45 = or(adc_b4, adc_b5)
+  adc_any67 = or(adc_b6, adc_b7)
+  adc_any0123 = or(adc_any01, adc_any23)
+  adc_any4567 = or(adc_any45, adc_any67)
+  adc_any = or(adc_any0123, adc_any4567)
+  is_adc = not(adc_any)
+
   ; STA $addr = 0x8D = 10001101 binary
   ; opcode[0]=1, [1]=0, [2]=1, [3]=1, [4]=0, [5]=0, [6]=0, [7]=1
   sta_b0 = xor(opcode[0], 1)
@@ -105,6 +129,25 @@ module decoder(opcode:8) -> (is_lda, is_ldx, is_sta, is_jmp, is_hlt, needs_imm, 
   jmp_any = or(jmp_any0123, jmp_any4567)
   is_jmp = not(jmp_any)
 
+  ; BEQ rel = 0xF0 = 11110000 binary
+  ; opcode[0]=0, [1]=0, [2]=0, [3]=0, [4]=1, [5]=1, [6]=1, [7]=1
+  beq_b0 = xor(opcode[0], 0)
+  beq_b1 = xor(opcode[1], 0)
+  beq_b2 = xor(opcode[2], 0)
+  beq_b3 = xor(opcode[3], 0)
+  beq_b4 = xor(opcode[4], 1)
+  beq_b5 = xor(opcode[5], 1)
+  beq_b6 = xor(opcode[6], 1)
+  beq_b7 = xor(opcode[7], 1)
+  beq_any01 = or(beq_b0, beq_b1)
+  beq_any23 = or(beq_b2, beq_b3)
+  beq_any45 = or(beq_b4, beq_b5)
+  beq_any67 = or(beq_b6, beq_b7)
+  beq_any0123 = or(beq_any01, beq_any23)
+  beq_any4567 = or(beq_any45, beq_any67)
+  beq_any = or(beq_any0123, beq_any4567)
+  is_beq = not(beq_any)
+
   ; HLT = 0x02 = 00000010 binary
   ; opcode[0]=0, [1]=1, [2]=0, [3]=0, [4]=0, [5]=0, [6]=0, [7]=0
   hlt_b0 = xor(opcode[0], 0)
@@ -124,8 +167,11 @@ module decoder(opcode:8) -> (is_lda, is_ldx, is_sta, is_jmp, is_hlt, needs_imm, 
   hlt_any = or(hlt_any0123, hlt_any4567)
   is_hlt = not(hlt_any)
 
-  ; needs_imm: LDA and LDX need immediate byte
-  needs_imm = or(is_lda, is_ldx)
+  ; needs_imm: LDA, LDX, and ADC need immediate byte
+  needs_imm = or(or(is_lda, is_ldx), is_adc)
 
   ; needs_addr: STA and JMP need 16-bit address
   needs_addr = or(is_sta, is_jmp)
+
+  ; needs_rel: BEQ needs relative offset (1 signed byte)
+  needs_rel = is_beq

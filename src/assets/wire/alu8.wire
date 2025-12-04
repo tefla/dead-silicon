@@ -11,10 +11,10 @@
 ;   result:8 - operation result
 ;   z        - Zero flag (result == 0)
 ;   n        - Negative flag (result bit 7, sign bit)
-;   c        - Carry flag (carry/borrow out from ADD/SUB)
-;   v        - Overflow flag (signed overflow for ADD/SUB)
+;   cout     - Carry flag (carry/borrow out from ADD/SUB)
+;   vout     - Overflow flag (signed overflow for ADD/SUB)
 
-module alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
+module alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, cout, vout):
   ; ========================================
   ; Compute all operations in parallel
   ; ========================================
@@ -75,7 +75,7 @@ module alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
   ; For ADD: direct carry out
   ; For SUB: carry out (no borrow when cout=1)
   ; Select based on op[0] (0=ADD, 1=SUB)
-  c = mux(add_result.cout, sub_result.cout, op[0])
+  cout = mux(add_result.cout, sub_result.cout, op[0])
 
   ; Overflow flag: signed overflow for ADD/SUB
   ; V = 1 when two operands of same sign produce result of different sign
@@ -96,4 +96,4 @@ module alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
   v_sub = and(sub_diff_sign, sub_result_diff)
 
   ; Select overflow based on operation (only valid for ADD/SUB)
-  v = mux(v_add, v_sub, op[0])
+  vout = mux(v_add, v_sub, op[0])

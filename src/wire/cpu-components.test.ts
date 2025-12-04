@@ -688,13 +688,13 @@ module test_inc16(in:16) -> out:16:
     const testModule = `
 ${aluStdlib}
 
-module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
+module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, cout, vout):
   alu = alu8(a, b, op, cin)
   result = alu.result
   z = alu.z
   n = alu.n
-  c = alu.c
-  v = alu.v
+  cout = alu.cout
+  vout = alu.vout
 `
 
     // Operation codes
@@ -723,8 +723,8 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         expect(sim.getOutput('result')).toBe(0x00)
         expect(sim.getOutput('z')).toBe(1) // Zero flag set
         expect(sim.getOutput('n')).toBe(0)
-        expect(sim.getOutput('c')).toBe(0)
-        expect(sim.getOutput('v')).toBe(0)
+        expect(sim.getOutput('cout')).toBe(0)
+        expect(sim.getOutput('vout')).toBe(0)
       })
 
       it('adds 1 + 1 = 2', () => {
@@ -742,8 +742,8 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         expect(sim.getOutput('result')).toBe(0x02)
         expect(sim.getOutput('z')).toBe(0)
         expect(sim.getOutput('n')).toBe(0)
-        expect(sim.getOutput('c')).toBe(0)
-        expect(sim.getOutput('v')).toBe(0)
+        expect(sim.getOutput('cout')).toBe(0)
+        expect(sim.getOutput('vout')).toBe(0)
       })
 
       it('adds with carry in: 1 + 1 + 1 = 3', () => {
@@ -775,8 +775,8 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
 
         expect(sim.getOutput('result')).toBe(0x80) // -128 in two's complement
         expect(sim.getOutput('n')).toBe(1) // Negative
-        expect(sim.getOutput('v')).toBe(1) // Overflow!
-        expect(sim.getOutput('c')).toBe(0) // No carry
+        expect(sim.getOutput('vout')).toBe(1) // Overflow!
+        expect(sim.getOutput('cout')).toBe(0) // No carry
       })
 
       it('adds 0xFF + 0x01 = 0x00 with carry (unsigned overflow)', () => {
@@ -793,8 +793,8 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
 
         expect(sim.getOutput('result')).toBe(0x00)
         expect(sim.getOutput('z')).toBe(1) // Result is zero
-        expect(sim.getOutput('c')).toBe(1) // Carry out
-        expect(sim.getOutput('v')).toBe(0) // No signed overflow (-1 + 1 = 0)
+        expect(sim.getOutput('cout')).toBe(1) // Carry out
+        expect(sim.getOutput('vout')).toBe(0) // No signed overflow (-1 + 1 = 0)
       })
 
       it('adds 0xFF + 0xFF = 0xFE with carry', () => {
@@ -810,7 +810,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.step()
 
         expect(sim.getOutput('result')).toBe(0xFE)
-        expect(sim.getOutput('c')).toBe(1) // Carry
+        expect(sim.getOutput('cout')).toBe(1) // Carry
         expect(sim.getOutput('n')).toBe(1) // Negative
       })
 
@@ -828,8 +828,8 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
 
         expect(sim.getOutput('result')).toBe(0x00)
         expect(sim.getOutput('z')).toBe(1)
-        expect(sim.getOutput('c')).toBe(1) // Carry
-        expect(sim.getOutput('v')).toBe(1) // Overflow! Two negatives produced positive
+        expect(sim.getOutput('cout')).toBe(1) // Carry
+        expect(sim.getOutput('vout')).toBe(1) // Overflow! Two negatives produced positive
       })
 
       it('adds 0x40 + 0x40 = 0x80 with overflow', () => {
@@ -845,7 +845,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.step()
 
         expect(sim.getOutput('result')).toBe(0x80)
-        expect(sim.getOutput('v')).toBe(1) // 64 + 64 = 128, but signed max is 127
+        expect(sim.getOutput('vout')).toBe(1) // 64 + 64 = 128, but signed max is 127
       })
 
       it('adds positive + negative without overflow: 0x50 + 0xF0 = 0x40', () => {
@@ -861,8 +861,8 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.step()
 
         expect(sim.getOutput('result')).toBe(0x40) // 80 + (-16) = 64
-        expect(sim.getOutput('c')).toBe(1) // Carry (unsigned overflow)
-        expect(sim.getOutput('v')).toBe(0) // No signed overflow
+        expect(sim.getOutput('cout')).toBe(1) // Carry (unsigned overflow)
+        expect(sim.getOutput('vout')).toBe(0) // No signed overflow
       })
 
       it('adds various values correctly', () => {
@@ -910,8 +910,8 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         expect(sim.getOutput('result')).toBe(0x02)
         expect(sim.getOutput('z')).toBe(0)
         expect(sim.getOutput('n')).toBe(0)
-        expect(sim.getOutput('c')).toBe(1) // No borrow (carry=1)
-        expect(sim.getOutput('v')).toBe(0)
+        expect(sim.getOutput('cout')).toBe(1) // No borrow (carry=1)
+        expect(sim.getOutput('vout')).toBe(0)
       })
 
       it('subtracts same values: 0x42 - 0x42 = 0 with Z flag', () => {
@@ -928,7 +928,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
 
         expect(sim.getOutput('result')).toBe(0x00)
         expect(sim.getOutput('z')).toBe(1)
-        expect(sim.getOutput('c')).toBe(1) // No borrow
+        expect(sim.getOutput('cout')).toBe(1) // No borrow
       })
 
       it('subtracts 0x00 - 0x01 = 0xFF with borrow (underflow)', () => {
@@ -945,7 +945,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
 
         expect(sim.getOutput('result')).toBe(0xFF)
         expect(sim.getOutput('n')).toBe(1) // Negative
-        expect(sim.getOutput('c')).toBe(0) // Borrow occurred (carry=0)
+        expect(sim.getOutput('cout')).toBe(0) // Borrow occurred (carry=0)
       })
 
       it('subtracts 0x80 - 0x01 = 0x7F with overflow (negative to positive)', () => {
@@ -962,7 +962,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
 
         expect(sim.getOutput('result')).toBe(0x7F) // 127
         expect(sim.getOutput('n')).toBe(0) // Positive
-        expect(sim.getOutput('v')).toBe(1) // Overflow! -128 - 1 should be -129
+        expect(sim.getOutput('vout')).toBe(1) // Overflow! -128 - 1 should be -129
       })
 
       it('subtracts 0x7F - 0xFF = 0x80 with overflow (positive - negative = negative)', () => {
@@ -979,8 +979,8 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
 
         expect(sim.getOutput('result')).toBe(0x80) // -128, but should be 128
         expect(sim.getOutput('n')).toBe(1)
-        expect(sim.getOutput('v')).toBe(1) // Overflow!
-        expect(sim.getOutput('c')).toBe(0) // Borrow
+        expect(sim.getOutput('vout')).toBe(1) // Overflow!
+        expect(sim.getOutput('cout')).toBe(0) // Borrow
       })
 
       it('subtracts with borrow in: 0x10 - 0x05 - 1 = 0x0A', () => {
@@ -1012,7 +1012,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
 
         expect(sim.getOutput('result')).toBe(0xFF)
         expect(sim.getOutput('n')).toBe(1)
-        expect(sim.getOutput('c')).toBe(1) // No borrow
+        expect(sim.getOutput('cout')).toBe(1) // No borrow
       })
 
       it('subtracts various values correctly', () => {
@@ -1422,7 +1422,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.setInput('cin', 0)
         sim.step()
         expect(sim.getOutput('z')).toBe(1)
-        expect(sim.getOutput('c')).toBe(1)
+        expect(sim.getOutput('cout')).toBe(1)
       })
 
       it('sets Z on XOR of same values', () => {
@@ -1527,7 +1527,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.setInput('op', OP_ADD)
         sim.setInput('cin', 0)
         sim.step()
-        expect(sim.getOutput('c')).toBe(1)
+        expect(sim.getOutput('cout')).toBe(1)
       })
 
       it('clears C on ADD without overflow', () => {
@@ -1541,7 +1541,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.setInput('op', OP_ADD)
         sim.setInput('cin', 0)
         sim.step()
-        expect(sim.getOutput('c')).toBe(0)
+        expect(sim.getOutput('cout')).toBe(0)
       })
 
       it('sets C (no borrow) on SUB when a >= b', () => {
@@ -1555,7 +1555,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.setInput('op', OP_SUB)
         sim.setInput('cin', 1)
         sim.step()
-        expect(sim.getOutput('c')).toBe(1) // No borrow
+        expect(sim.getOutput('cout')).toBe(1) // No borrow
       })
 
       it('clears C (borrow) on SUB when a < b', () => {
@@ -1569,7 +1569,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.setInput('op', OP_SUB)
         sim.setInput('cin', 1)
         sim.step()
-        expect(sim.getOutput('c')).toBe(0) // Borrow occurred
+        expect(sim.getOutput('cout')).toBe(0) // Borrow occurred
       })
 
       it('C propagates through carry chain', () => {
@@ -1584,7 +1584,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.setInput('op', OP_ADD)
         sim.setInput('cin', 0)
         sim.step()
-        expect(sim.getOutput('c')).toBe(1)
+        expect(sim.getOutput('cout')).toBe(1)
         expect(sim.getOutput('result')).toBe(0x00)
       })
     })
@@ -1604,7 +1604,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.setInput('op', OP_ADD)
         sim.setInput('cin', 0)
         sim.step()
-        expect(sim.getOutput('v')).toBe(1)
+        expect(sim.getOutput('vout')).toBe(1)
         expect(sim.getOutput('result')).toBe(0x80) // -128
       })
 
@@ -1619,7 +1619,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.setInput('op', OP_ADD)
         sim.setInput('cin', 0)
         sim.step()
-        expect(sim.getOutput('v')).toBe(1)
+        expect(sim.getOutput('vout')).toBe(1)
         expect(sim.getOutput('result')).toBe(0x00)
       })
 
@@ -1634,7 +1634,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.setInput('op', OP_ADD)
         sim.setInput('cin', 0)
         sim.step()
-        expect(sim.getOutput('v')).toBe(0)
+        expect(sim.getOutput('vout')).toBe(0)
       })
 
       it('sets V on positive - negative = negative (SUB overflow)', () => {
@@ -1648,7 +1648,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.setInput('op', OP_SUB)
         sim.setInput('cin', 1)
         sim.step()
-        expect(sim.getOutput('v')).toBe(1) // 127 - (-1) = 128, overflow
+        expect(sim.getOutput('vout')).toBe(1) // 127 - (-1) = 128, overflow
       })
 
       it('sets V on negative - positive = positive (SUB overflow)', () => {
@@ -1662,7 +1662,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.setInput('op', OP_SUB)
         sim.setInput('cin', 1)
         sim.step()
-        expect(sim.getOutput('v')).toBe(1) // -128 - 1 = -129, overflow
+        expect(sim.getOutput('vout')).toBe(1) // -128 - 1 = -129, overflow
       })
 
       it('clears V on negative - negative (same sign)', () => {
@@ -1676,7 +1676,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.setInput('op', OP_SUB)
         sim.setInput('cin', 1)
         sim.step()
-        expect(sim.getOutput('v')).toBe(0)
+        expect(sim.getOutput('vout')).toBe(0)
         expect(sim.getOutput('result')).toBe(0x00)
       })
 
@@ -1691,7 +1691,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.setInput('op', OP_SUB)
         sim.setInput('cin', 1)
         sim.step()
-        expect(sim.getOutput('v')).toBe(0)
+        expect(sim.getOutput('vout')).toBe(0)
       })
 
       it('tests edge case: 0x40 + 0x40 = 0x80 (V=1)', () => {
@@ -1705,7 +1705,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.setInput('op', OP_ADD)
         sim.setInput('cin', 0)
         sim.step()
-        expect(sim.getOutput('v')).toBe(1) // 64 + 64 = 128 > 127
+        expect(sim.getOutput('vout')).toBe(1) // 64 + 64 = 128 > 127
       })
 
       it('tests edge case: 0xC0 + 0xC0 = 0x80 (V=0, wraps correctly)', () => {
@@ -1719,7 +1719,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
         sim.setInput('op', OP_ADD)
         sim.setInput('cin', 0)
         sim.step()
-        expect(sim.getOutput('v')).toBe(0) // -64 + -64 = -128, fits in signed range
+        expect(sim.getOutput('vout')).toBe(0) // -64 + -64 = -128, fits in signed range
         expect(sim.getOutput('result')).toBe(0x80)
       })
     })
@@ -1849,7 +1849,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
             expect(sim.getOutput('n')).toBe((expected & 0x80) ? 1 : 0)
 
             // Verify C flag
-            expect(sim.getOutput('c')).toBe((a + b) > 0xFF ? 1 : 0)
+            expect(sim.getOutput('cout')).toBe((a + b) > 0xFF ? 1 : 0)
           }
         }
       })
@@ -1880,7 +1880,7 @@ module test_alu8(a:8, b:8, op:3, cin) -> (result:8, z, n, c, v):
             expect(sim.getOutput('n')).toBe((expected & 0x80) ? 1 : 0)
 
             // Verify C flag (no borrow when a >= b)
-            expect(sim.getOutput('c')).toBe(a >= b ? 1 : 0)
+            expect(sim.getOutput('cout')).toBe(a >= b ? 1 : 0)
           }
         }
       })
@@ -3128,13 +3128,14 @@ module test_decoder(opcode:8) -> (is_lda, is_sta, is_jmp, is_hlt, needs_imm, nee
     // Load CPU module and dependencies
     const pcWire = readFileSync(resolve(__dirname, '../assets/wire/pc.wire'), 'utf-8')
     const decoderWire = readFileSync(resolve(__dirname, '../assets/wire/decoder.wire'), 'utf-8')
+    const alu8Wire = readFileSync(resolve(__dirname, '../assets/wire/alu8.wire'), 'utf-8')
     const cpuWire = readFileSync(resolve(__dirname, '../assets/wire/cpu_minimal.wire'), 'utf-8')
-    const cpuStdlib = stdlib + '\n' + pcWire + '\n' + decoderWire + '\n' + cpuWire
+    const cpuStdlib = stdlib + '\n' + pcWire + '\n' + decoderWire + '\n' + alu8Wire + '\n' + cpuWire
 
     const testModule = `
 ${cpuStdlib}
 
-module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, a_out:8, x_out:8, pc_out:16, state_out:3):
+module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, a_out:8, x_out:8, flags_out:4, pc_out:16, state_out:3):
   cpu = cpu_minimal(clk, reset, data_in)
   addr = cpu.addr
   data_out = cpu.data_out
@@ -3142,6 +3143,7 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
   halted = cpu.halted
   a_out = cpu.a_out
   x_out = cpu.x_out
+  flags_out = cpu.flags_out
   pc_out = cpu.pc_out
   state_out = cpu.state_out
 `
@@ -3192,6 +3194,7 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
         halted: sim.getOutput('halted') === 1,
         a: sim.getOutput('a_out'),
         x: sim.getOutput('x_out'),
+        flags: sim.getOutput('flags_out'),
         pc: sim.getOutput('pc_out'),
         state: sim.getOutput('state_out'),
         writes
@@ -3481,6 +3484,319 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
         expect(final.halted).toBe(true)
         expect(final.a).toBe(0xAA)
         expect(final.x).toBe(0xBB)
+      })
+    })
+
+    // ==========================================
+    // ADC Instruction
+    // ==========================================
+    describe('ADC instruction', () => {
+      it('adds immediate value without carry', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$10, ADC #$20, HLT (0x10 + 0x20 = 0x30)
+        const program = [
+          0xA9, 0x10,  // LDA #$10
+          0x69, 0x20,  // ADC #$20
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x30)
+        expect(final.flags & 0b0001).toBe(0) // Carry flag not set
+        expect(final.flags & 0b0010).toBe(0) // Zero flag not set
+        expect(final.flags & 0b0100).toBe(0) // Negative flag not set
+      })
+
+      it('adds with carry flag propagation', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$FF, ADC #$02, ADC #$03, HLT
+        // First ADC: 0xFF + 0x02 = 0x01 with C=1
+        // Second ADC: 0x01 + 0x03 + 1(carry) = 0x05 with C=0
+        const program = [
+          0xA9, 0xFF,  // LDA #$FF
+          0x69, 0x02,  // ADC #$02
+          0x69, 0x03,  // ADC #$03
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x05)
+        expect(final.flags & 0b0001).toBe(0) // Carry flag not set after second ADC
+      })
+
+      it('sets carry flag on overflow', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$FF, ADC #$02, HLT (0xFF + 0x02 = 0x01 with C=1)
+        const program = [
+          0xA9, 0xFF,  // LDA #$FF
+          0x69, 0x02,  // ADC #$02
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x01)
+        expect(final.flags & 0b0001).toBe(1) // Carry flag set
+      })
+
+      it('sets zero flag when result is zero', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$00, ADC #$00, HLT (0x00 + 0x00 = 0x00)
+        const program = [
+          0xA9, 0x00,  // LDA #$00
+          0x69, 0x00,  // ADC #$00
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x00)
+        expect(final.flags & 0b0010).toBe(0b0010) // Zero flag set
+      })
+
+      it('sets negative flag when result is >= 0x80', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$80, ADC #$10, HLT (0x80 + 0x10 = 0x90)
+        const program = [
+          0xA9, 0x80,  // LDA #$80
+          0x69, 0x10,  // ADC #$10
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x90)
+        expect(final.flags & 0b0100).toBe(0b0100) // Negative flag set
+      })
+
+      it('sets overflow flag on signed overflow (positive + positive = negative)', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$7F, ADC #$01, HLT (127 + 1 = -128 in signed)
+        const program = [
+          0xA9, 0x7F,  // LDA #$7F
+          0x69, 0x01,  // ADC #$01
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x80)
+        expect(final.flags & 0b1000).toBe(0b1000) // Overflow flag set
+      })
+
+      it('clears overflow flag when no signed overflow', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$7F, ADC #$01, LDA #$40, ADC #$20, HLT
+        // First ADC sets V flag, second clears it
+        const program = [
+          0xA9, 0x7F,  // LDA #$7F
+          0x69, 0x01,  // ADC #$01 (sets V)
+          0xA9, 0x40,  // LDA #$40
+          0x69, 0x20,  // ADC #$20 (clears V)
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x60)
+        expect(final.flags & 0b1000).toBe(0) // Overflow flag not set
+      })
+
+      it('handles multiple ADC operations in sequence', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$01, ADC #$02, ADC #$03, ADC #$04, HLT
+        // 1 + 2 = 3, 3 + 3 = 6, 6 + 4 = 10
+        const program = [
+          0xA9, 0x01,  // LDA #$01
+          0x69, 0x02,  // ADC #$02
+          0x69, 0x03,  // ADC #$03
+          0x69, 0x04,  // ADC #$04
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x0A)
+      })
+
+      it('ADC does not affect X register', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDX #$BB, LDA #$10, ADC #$20, HLT
+        const program = [
+          0xA2, 0xBB,  // LDX #$BB
+          0xA9, 0x10,  // LDA #$10
+          0x69, 0x20,  // ADC #$20
+          0x02         // HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0xBB)
+        expect(final.a).toBe(0x30)
+      })
+    })
+
+    // ==========================================
+    // BEQ Instruction
+    // ==========================================
+    describe('BEQ instruction', () => {
+      it('branches when zero flag is set', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$00, BEQ +3, LDA #$FF, HLT, HLT
+        // Address 0: LDA #$00 (sets Z=1)
+        // Address 2: BEQ +3 (branch to address 2+2+3=7)
+        // Address 4: LDA #$FF (skipped)
+        // Address 6: HLT (skipped)
+        // Address 7: HLT (executed)
+        const program = [
+          0xA9, 0x00,  // 0: LDA #$00 (A=0, Z=1)
+          0xF0, 0x03,  // 2: BEQ +3 (branch to 2+2+3=7)
+          0xA9, 0xFF,  // 4: LDA #$FF (skipped)
+          0x02,        // 6: HLT (skipped)
+          0x02         // 7: HLT (executed)
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x00) // Should still be 0 (LDA #$FF skipped)
+        expect(final.pc).toBe(8) // Should be at address after final HLT
+      })
+
+      it('does not branch when zero flag is clear', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$42, BEQ +3, LDA #$99, HLT
+        // Address 0: LDA #$42 (sets Z=0)
+        // Address 2: BEQ +3 (no branch, Z=0)
+        // Address 4: LDA #$99 (executed)
+        // Address 6: HLT
+        const program = [
+          0xA9, 0x42,  // 0: LDA #$42 (A=0x42, Z=0)
+          0xF0, 0x03,  // 2: BEQ +3 (no branch)
+          0xA9, 0x99,  // 4: LDA #$99 (executed)
+          0x02         // 6: HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x99) // Should have executed LDA #$99
+        expect(final.pc).toBe(7)
+      })
+
+      it('branches backward with negative offset', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: Create a simple loop with backward branch
+        // Address 0: LDX #$03 (counter)
+        // Address 2: LDA #$00 (set Z=1)
+        // Address 4: BEQ +2 (branch to 4+2+2=8)
+        // Address 6: LDA #$FF (skipped)
+        // Address 8: HLT
+        const program = [
+          0xA2, 0x03,  // 0: LDX #$03
+          0xA9, 0x00,  // 2: LDA #$00 (A=0, Z=1)
+          0xF0, 0x02,  // 4: BEQ +2 (branch to 8)
+          0xA9, 0xFF,  // 6: LDA #$FF (skipped)
+          0x02         // 8: HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x00) // Should still be 0
+        expect(final.x).toBe(0x03)
+      })
+
+      it('handles zero offset (branch to next instruction)', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$00, BEQ +0, HLT
+        // The +0 offset means branch to the next instruction
+        const program = [
+          0xA9, 0x00,  // 0: LDA #$00 (Z=1)
+          0xF0, 0x00,  // 2: BEQ +0 (branch to 4)
+          0x02         // 4: HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x00)
+      })
+
+      it('uses ADC to set zero flag then branch', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: LDA #$FE, ADC #$02, BEQ +3, LDA #$FF, HLT, LDA #$AA, HLT
+        // ADC: 0xFE + 0x02 = 0x00 with C=1, Z=1
+        // BEQ should branch to skip LDA #$FF and HLT, landing at LDA #$AA
+        const program = [
+          0xA9, 0xFE,  // 0-1: LDA #$FE
+          0x69, 0x02,  // 2-3: ADC #$02 (result 0x00, Z=1, C=1)
+          0xF0, 0x03,  // 4-5: BEQ +3 (branch to 4+2+3=9)
+          0xA9, 0xFF,  // 6-7: LDA #$FF (skipped)
+          0x02,        // 8: HLT (skipped)
+          0xA9, 0xAA,  // 9-10: LDA #$AA (executed)
+          0x02         // 11: HLT
+        ]
+        const final = runProgram(sim, program)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0xAA)
+        expect(final.flags & 0b0001).toBe(1) // Carry flag still set from ADC
+        expect(final.flags & 0b0010).toBe(0) // Zero flag cleared by LDA #$AA
       })
     })
 
