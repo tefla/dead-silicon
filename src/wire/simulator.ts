@@ -485,8 +485,9 @@ import { compile, resetNodeCounter } from './compiler'
 import { TypedArraySimulator } from './simulator-typed'
 import { JITSimulator } from './simulator-jit'
 import { LevelizedSimulator } from './simulator-levelized'
+import { JIT2Simulator } from './simulator-jit2'
 
-export type SimulatorStrategy = 'interpreter' | 'typed-array' | 'jit' | 'levelized'
+export type SimulatorStrategy = 'interpreter' | 'typed-array' | 'jit' | 'levelized' | 'jit2'
 
 export type SimulateResult =
   | { ok: true; simulator: ISimulator; modules: Map<string, CompiledModule> }
@@ -544,6 +545,9 @@ export function createSimulator(
       break
     case 'levelized':
       simulator = new LevelizedSimulator(main, modules)
+      break
+    case 'jit2':
+      simulator = new JIT2Simulator(main, modules)
       break
     default:
       return { ok: false, error: `Unknown strategy: ${strategy} ` }
