@@ -51,8 +51,9 @@ export function useSimulation() {
 
     // Try to compile and create simulator
     // Prepend stdlib to user code so modules like not, and, adder4, etc. are available
+    // Use WASM strategy for maximum performance (~18 KHz)
     const sourceWithStdlib = WIRE_STDLIB + editorValue
-    const result = createSimulator(sourceWithStdlib)
+    const result = createSimulator(sourceWithStdlib, undefined, 'wasm')
     if (result.ok) {
       simulatorRef.current = result.simulator
       clockStateRef.current = 0
