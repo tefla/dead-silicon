@@ -201,21 +201,25 @@ $C000-$FFFF  ROM (16KB) - firmware/BIOS
 - [x] RX logic with rx_ready flag
 - [x] 10 I/O controller tests passing
 
-### 6.2: Boot Program
+### 6.2: Boot Program ✅
 - [x] `boot_minimal.pulse` - Minimal boot using 28 implemented instructions
 - [x] Assembles to ROM at $C000 with reset vector at $FFFC
 - [x] Turns LED on, prints "OK\n" to serial, turns LED off, halts
-- [ ] Boot sequence integration tests (in progress)
+- [x] Boot sequence integration tests (3 tests passing)
+  - [x] Fixed missing `pcWire` dependency in test harness
+  - [x] CPU boots from reset vector at $C000
+  - [x] Executes boot program and outputs "OK\n"
+  - [x] LED turns on then off during boot
 
-### 6.3: Full System Integration
-- [ ] CPU + I/O controller + ROM boot sequence
-- [ ] Serial output capture
-- [ ] LED state verification
+### 6.3: Full System Integration ✅
+- [x] CPU + I/O controller + ROM boot sequence
+- [x] Serial output capture
+- [x] LED state verification
 
 **Phase 6 Complete When:**
-- [ ] Boot prints banner via serial
-- [ ] LED toggles during boot
-- [ ] Full system integration tests passing
+- [x] Boot prints banner via serial
+- [x] LED toggles during boot
+- [x] Full system integration tests passing (323 CPU component tests)
 
 ---
 
@@ -234,12 +238,16 @@ $C000-$FFFF  ROM (16KB) - firmware/BIOS
 
 ## Current Status
 
-**Active Phase:** Phase 6 (Boot Sequence & Shell)
-**Current Task:** Boot sequence integration tests
-**Tests Passing:** 1418 total (310 CPU + 10 I/O controller tests)
+**Active Phase:** Phase 6 Complete! 🎉
+**Current Task:** Ready for Phase 7 (Extended addressing modes)
+**Tests Passing:** 1472 total (323 CPU component tests)
 **Last Updated:** 2025-12-05
 
 ### Recent Accomplishments
+- ✅ **Phase 6 Complete!** Boot sequence and full system integration
+  - Fixed missing `pcWire` dependency in Boot Sequence tests
+  - All 323 CPU component tests passing
+  - CPU boots from reset vector, executes boot program, outputs "OK\n"
 - ✅ **I/O Controller Complete!** Memory-mapped I/O at $8000-$800F
   - Serial TX/RX with status flags (tx_busy, rx_ready)
   - LED control register
