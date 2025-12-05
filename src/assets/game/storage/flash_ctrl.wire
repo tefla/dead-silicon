@@ -1,0 +1,42 @@
+; ═══════════════════════════════════════════════════════════════════════════
+; FLASH MEMORY CONTROLLER - Storage Read/Write
+; Cygnus-7 Data Storage System
+; ═══════════════════════════════════════════════════════════════════════════
+;
+; This module interfaces with the flash memory for reading flight logs.
+; Flash memory requires a read strobe held for 2 clock cycles for valid data.
+;
+; Read sequence:
+;   1. Set address
+;   2. Assert read_en
+;   3. Wait 2 cycles for data to appear
+;   4. Capture data
+;
+; INPUTS:
+;   addr:16     - Memory address to read
+;   read_en     - Read enable signal
+;   clk         - System clock
+;
+; OUTPUTS:
+;   data:8      - Data read from memory
+;   valid       - 1 = data output is valid
+;
+; ═══════════════════════════════════════════════════════════════════════════
+
+module flash_controller(addr:16, read_en, clk) -> (data:8, valid):
+  ; Delay the read strobe to create proper timing
+  read_delay1 = dff(read_en, clk)
+
+  ; ╔═══════════════════════════════════════════════════════════════════════╗
+  ; ║ DAMAGE: Need second delay stage for flash timing!                    ║
+  ; ║         Flash requires 2 cycle read strobe                           ║
+  ; ║         Add: read_delay2 = dff(read_delay1, clk)                     ║
+  ; ║         And use read_delay2 for the capture signal                   ║
+  ; ╚═══════════════════════════════════════════════════════════════════════╝
+
+  ; Capture data when read is stable
+  ; (Using dff8 as placeholder - actual flash memory would be external)
+  data = dff8(addr[0:7], read_delay1)  ; Simplified - returns low byte of addr
+
+  ; Valid signal - should be delayed by 2 cycles
+  valid = read_delay1

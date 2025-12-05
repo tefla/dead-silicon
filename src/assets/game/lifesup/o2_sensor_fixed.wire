@@ -1,0 +1,9 @@
+; O2 SENSOR - Oxygen Level Sensor Interface (FIXED VERSION)
+; This is the correct implementation for reference
+
+module o2_sensor(analog:8, clk) -> level:8:
+  ; Sample the analog input on clock edge for stability
+  sampled = dff8(analog, clk)
+
+  ; Output all 8 bits of the sampled level
+  level = sampled[0:7]

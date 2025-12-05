@@ -1,0 +1,37 @@
+; ═══════════════════════════════════════════════════════════════════════════
+; CO2 SCRUBBER CONTROLLER - Carbon Dioxide Removal System
+; Cygnus-7 Life Support System
+; ═══════════════════════════════════════════════════════════════════════════
+;
+; This module controls the CO2 scrubber activation based on CO2 levels.
+; The scrubber should activate when CO2 exceeds the safety threshold.
+;
+; Normal operation:
+;   - CO2 below threshold: Scrubber OFF (standby)
+;   - CO2 at or above threshold: Scrubber ON (active)
+;
+; INPUTS:
+;   co2_level:8   - Current CO2 level from sensor (0-255)
+;   threshold:8   - Activation threshold (default ~5%)
+;
+; OUTPUTS:
+;   scrubber_on   - 1 = activate scrubber, 0 = standby
+;
+; ═══════════════════════════════════════════════════════════════════════════
+
+module co2_scrubber(co2_level:8, threshold:8) -> scrubber_on:
+  ; Compare CO2 level to threshold
+  ; We subtract threshold from level: if result is positive (MSB=0), level >= threshold
+
+  ; Compute co2_level - threshold using two's complement
+  diff = adder8(co2_level, not8(threshold), 1)
+
+  ; ╔═══════════════════════════════════════════════════════════════════════╗
+  ; ║ DAMAGE: Comparison is inverted!                                       ║
+  ; ║         Currently activates when CO2 is BELOW threshold              ║
+  ; ║         Should activate when CO2 is AT or ABOVE threshold            ║
+  ; ║                                                                       ║
+  ; ║         diff[7] = 1 means co2_level < threshold (negative result)    ║
+  ; ║         diff[7] = 0 means co2_level >= threshold (positive result)   ║
+  ; ╚═══════════════════════════════════════════════════════════════════════╝
+  scrubber_on = diff[7]

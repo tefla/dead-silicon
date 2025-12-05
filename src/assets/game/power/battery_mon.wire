@@ -1,0 +1,32 @@
+; ═══════════════════════════════════════════════════════════════════════════
+; BATTERY MONITOR - Power Level Monitoring
+; Cygnus-7 Power Management
+; ═══════════════════════════════════════════════════════════════════════════
+;
+; This module reads the battery ADC and outputs a stable reading.
+; The ADC requires a settling time of 2 clock cycles before data is valid.
+;
+; INPUTS:
+;   adc_data:8  - Raw ADC reading from battery voltage sensor
+;   clk         - System clock
+;
+; OUTPUTS:
+;   level:8     - Filtered battery level (0-255)
+;   valid       - 1 = reading is stable and valid
+;
+; ═══════════════════════════════════════════════════════════════════════════
+
+module battery_monitor(adc_data:8, clk) -> (level:8, valid):
+  ; Stage 1: Capture raw ADC data
+  stage1 = dff8(adc_data, clk)
+
+  ; ╔═══════════════════════════════════════════════════════════════════════╗
+  ; ║ DAMAGE: Need a second delay stage for ADC settling time!             ║
+  ; ║         Currently reads data before ADC has settled                  ║
+  ; ║         Add: stage2 = dff8(stage1, clk)                              ║
+  ; ║         And: level = stage2                                          ║
+  ; ╚═══════════════════════════════════════════════════════════════════════╝
+  level = stage1
+
+  ; Valid after 2 cycles (placeholder - always valid for now)
+  valid = 1
