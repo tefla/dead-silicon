@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
 export default defineConfig({
+  // Use base URL for GitHub Pages deployment
+  base: process.env.VITE_BASE_URL || '/',
   plugins: [react()],
   resolve: {
     alias: {
