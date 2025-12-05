@@ -3,12 +3,14 @@ import './styles/globals.css'
 import { Playground } from './components/Playground'
 import { VisualEditorWithCode } from './visual-editor'
 import { KnowledgeBase } from './knowledge-base'
+import { Game } from './components/Game'
 import { usePlaygroundStore } from './store/usePlaygroundStore'
+import { Rocket, Wrench, BookOpen, Cpu } from 'lucide-react'
 
-type View = 'playground' | 'visual' | 'knowledge'
+type View = 'game' | 'playground' | 'visual' | 'knowledge'
 
 export function App() {
-  const [view, setView] = useState<View>('visual')
+  const [view, setView] = useState<View>('game')
   const setActiveFile = usePlaygroundStore(state => state.setActiveFile)
 
   // Handle opening examples from knowledge base in playground
@@ -17,11 +19,51 @@ export function App() {
     setView('playground')
   }, [setActiveFile])
 
+  // Game view is full screen without header
+  if (view === 'game') {
+    return (
+      <div className="h-screen w-screen bg-gray-950">
+        <Game />
+        {/* Floating button to access other views */}
+        <div className="fixed top-2 right-2 flex gap-1 z-50">
+          <button
+            onClick={() => setView('playground')}
+            className="p-2 bg-gray-800/80 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition-colors"
+            title="Playground"
+          >
+            <Wrench size={16} />
+          </button>
+          <button
+            onClick={() => setView('visual')}
+            className="p-2 bg-gray-800/80 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition-colors"
+            title="Visual Editor"
+          >
+            <Cpu size={16} />
+          </button>
+          <button
+            onClick={() => setView('knowledge')}
+            className="p-2 bg-gray-800/80 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition-colors"
+            title="Knowledge Base"
+          >
+            <BookOpen size={16} />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="h-screen w-screen bg-vscode-bg text-vscode-text">
       <header className="h-12 bg-vscode-sidebar border-b border-vscode-border flex items-center px-4">
         <h1 className="text-lg font-semibold">Dead Silicon</h1>
         <div className="ml-4 flex gap-2">
+          <button
+            onClick={() => setView('game')}
+            className="px-3 py-1 text-sm rounded transition-colors flex items-center gap-1.5 bg-green-600/20 text-green-400 hover:bg-green-600/30"
+          >
+            <Rocket size={14} />
+            Play Game
+          </button>
           <button
             onClick={() => setView('visual')}
             className={`px-3 py-1 text-sm rounded transition-colors ${

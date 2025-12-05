@@ -1,0 +1,32 @@
+; ═══════════════════════════════════════════════════════════════════════════
+; O2 SENSOR - Oxygen Level Sensor Interface
+; Cygnus-7 Life Support System
+; ═══════════════════════════════════════════════════════════════════════════
+;
+; This module reads the 8-bit analog-to-digital converter (ADC) value from
+; the O2 tank pressure sensor and outputs the current oxygen level.
+;
+; The ADC provides an 8-bit value (0-255) representing O2 percentage.
+; Full tank (94%) reads approximately 0x5E (94).
+; Empty tank reads 0x00.
+;
+; INPUTS:
+;   analog:8  - Raw 8-bit ADC value from O2 pressure sensor
+;   clk       - System clock for synchronous sampling
+;
+; OUTPUTS:
+;   level:8   - Processed oxygen level (0-255)
+;
+; ═══════════════════════════════════════════════════════════════════════════
+
+module o2_sensor(analog:8, clk) -> level:8:
+  ; Sample the analog input on clock edge for stability
+  sampled = dff8(analog, clk)
+
+  ; Output the sampled level
+  ; ╔═══════════════════════════════════════════════════════════════════════╗
+  ; ║ DAMAGE: Bit slice is wrong - should capture all 8 bits [0:7]         ║
+  ; ║         Currently only captures 7 bits, losing the high bit          ║
+  ; ║         This causes readings to appear as half their true value      ║
+  ; ╚═══════════════════════════════════════════════════════════════════════╝
+  level = sampled[0:6]

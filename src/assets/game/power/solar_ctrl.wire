@@ -1,0 +1,38 @@
+; ═══════════════════════════════════════════════════════════════════════════
+; SOLAR PANEL CONTROLLER - Power Generation System
+; Cygnus-7 Power Management
+; ═══════════════════════════════════════════════════════════════════════════
+;
+; This module controls solar panel charging based on available light.
+; Charging should enable when light level exceeds the minimum threshold.
+;
+; The light sensor provides an 8-bit value (0-255):
+;   - 0 = complete darkness
+;   - 200+ = direct sunlight
+;   - threshold typically set to 50 (minimum for useful charging)
+;
+; INPUTS:
+;   light_level:8  - Current light sensor reading
+;   threshold:8    - Minimum light level for charging
+;
+; OUTPUTS:
+;   charge_enable  - 1 = enable solar charging, 0 = disable
+;
+; ═══════════════════════════════════════════════════════════════════════════
+
+module solar_controller(light_level:8, threshold:8) -> charge_enable:
+  ; Compare light_level to threshold using subtraction
+  ; light_level - threshold: positive means sufficient light
+  ;
+  ; Two's complement subtraction: A - B = A + (~B) + 1
+  ; The "+1" comes from the carry-in to the adder
+
+  ; ╔═══════════════════════════════════════════════════════════════════════╗
+  ; ║ DAMAGE: Carry-in should be 1 for proper subtraction!                 ║
+  ; ║         Currently using 0, which computes A + (~B) instead of A - B  ║
+  ; ║         This makes the comparison always fail                        ║
+  ; ╚═══════════════════════════════════════════════════════════════════════╝
+  diff = adder8(light_level, not8(threshold), 0)
+
+  ; If diff[7] = 0, light_level >= threshold (enable charging)
+  charge_enable = not(diff[7])

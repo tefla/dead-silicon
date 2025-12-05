@@ -1,0 +1,10 @@
+; CO2 SCRUBBER CONTROLLER (FIXED VERSION)
+; This is the correct implementation for reference
+
+module co2_scrubber(co2_level:8, threshold:8) -> scrubber_on:
+  ; Compare CO2 level to threshold
+  diff = adder8(co2_level, not8(threshold), 1)
+
+  ; Activate when CO2 >= threshold (positive result, MSB = 0)
+  ; Use NOT to invert: scrubber ON when diff[7] = 0
+  scrubber_on = not(diff[7])
