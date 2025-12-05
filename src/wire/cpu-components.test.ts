@@ -7057,11 +7057,12 @@ module boot_test(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halt
     clockCycle()
     sim.setInput('reset', 0)
 
-    // Complete reset vector read
-    sim.setInput('data_in', bootRomSimple[0x3FFC])  // $00
-    clockCycle()
-    sim.setInput('data_in', bootRomSimple[0x3FFD])  // $C0
-    clockCycle()
+    // Complete reset vector read (states 20 -> 21 -> 22 -> 0)
+    sim.setInput('data_in', bootRomSimple[0x3FFC])  // $00 (low byte)
+    clockCycle()  // State 20 -> 21
+    sim.setInput('data_in', bootRomSimple[0x3FFD])  // $C0 (high byte)
+    clockCycle()  // State 21 -> 22
+    clockCycle()  // State 22 -> 0 (PC loaded)
 
     const output: number[] = []
     const stackMem = new Array(256).fill(0)
@@ -7146,7 +7147,10 @@ module boot_test(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halt
     // State 21: read reset vector high byte from $FFFD
     expect(sim.getOutput('addr')).toBe(0xFFFD)
     sim.setInput('data_in', 0xC0)  // High byte = $C0
-    clockCycle()
+    clockCycle()  // State 21 -> 22
+
+    // State 22: load PC from reset vector
+    clockCycle()  // State 22 -> 0
 
     // State 0: PC should now be $C000
     expect(sim.getOutput('pc_out')).toBe(0xC000)
@@ -7180,11 +7184,12 @@ module boot_test(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halt
     clockCycle()
     sim.setInput('reset', 0)
 
-    // Reset vector read
-    sim.setInput('data_in', 0x00)
-    clockCycle()
-    sim.setInput('data_in', 0xC0)
-    clockCycle()
+    // Reset vector read (states 20 -> 21 -> 22 -> 0)
+    sim.setInput('data_in', 0x00)  // Low byte
+    clockCycle()  // State 20 -> 21
+    sim.setInput('data_in', 0xC0)  // High byte
+    clockCycle()  // State 21 -> 22
+    clockCycle()  // State 22 -> 0 (PC loaded)
 
     // Track LED state changes
     const ledStates: number[] = [sim.getOutput('led_out')]

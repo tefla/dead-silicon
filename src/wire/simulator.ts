@@ -130,31 +130,94 @@ export class InterpreterSimulator implements ISimulator {
 
   // Perform one simulation step
   step(): void {
-    // Process nodes in order (assumes topological sort for combinational)
-    // For a proper simulation, we'd need to sort, but for now process all nodes
-    // multiple times until stable (simple fixed-point iteration)
+    // Two-phase DFF evaluation to ensure all DFFs sample their D inputs
+    // simultaneously BEFORE any DFF updates its output.
+    //
+    // Phase 1: Evaluate combinational logic using current DFF outputs
+    // Phase 2: Sample all DFF D inputs that have rising edges
+    // Phase 3: Update all DFF outputs simultaneously
+    // Phase 4: Re-evaluate combinational logic to propagate new DFF values
 
     const maxIterations = 100
+
+    // Phase 1: Evaluate combinational logic until stable (DFFs just pass through current values)
     for (let i = 0; i < maxIterations; i++) {
       const oldValues = new Map(this.state.values)
-      this.evaluateNodes()
+      this.evaluateCombinationalOnly()
 
-      // Check for stability (excluding DFF outputs which change on clock edges)
       let stable = true
       for (const [name, value] of this.state.values) {
         if (oldValues.get(name) !== value) {
-          // Check if this is a DFF output - those are allowed to change
-          const isDffOutput = this.module.nodes.some(
-            n => n.type === 'dff' && n.outputs.includes(name)
-          )
-          if (!isDffOutput) {
-            stable = false
-            break
-          }
+          stable = false
+          break
         }
       }
-
       if (stable) break
+    }
+
+    // Phase 2: Sample all DFF D inputs that have rising edges
+    const dffSamples = new Map<string, number>() // node.id -> sampled D value
+    for (const node of this.module.nodes) {
+      if (node.type === 'dff' && node.inputs.length >= 2) {
+        const clk = this.resolveWire(node.inputs[1])
+        const prevClk = this.state.prevClock.get(node.id) ?? 0
+        if (prevClk === 0 && clk === 1) {
+          // Rising edge - sample D input NOW before any updates
+          const d = this.resolveWire(node.inputs[0])
+          dffSamples.set(node.id, d)
+        }
+      }
+    }
+
+    // Phase 3: Update all DFF outputs simultaneously with sampled values
+    for (const node of this.module.nodes) {
+      if (node.type === 'dff' && node.inputs.length >= 2) {
+        const clk = this.resolveWire(node.inputs[1])
+
+        // Apply sampled values from rising edges
+        if (dffSamples.has(node.id)) {
+          this.state.dffState.set(node.id, dffSamples.get(node.id)!)
+        }
+
+        // Update previous clock
+        this.state.prevClock.set(node.id, clk)
+
+        // Output is the latched value
+        const output = this.state.dffState.get(node.id) ?? 0
+        if (node.outputs.length > 0) {
+          this.state.values.set(node.outputs[0], output)
+        }
+      }
+    }
+
+    // Phase 4: Re-evaluate combinational logic to propagate new DFF values
+    for (let i = 0; i < maxIterations; i++) {
+      const oldValues = new Map(this.state.values)
+      this.evaluateCombinationalOnly()
+
+      let stable = true
+      for (const [name, value] of this.state.values) {
+        if (oldValues.get(name) !== value) {
+          stable = false
+          break
+        }
+      }
+      if (stable) break
+    }
+  }
+
+  // Evaluate only combinational logic (DFFs just output their current state)
+  private evaluateCombinationalOnly(): void {
+    for (const node of this.module.nodes) {
+      if (node.type === 'dff') {
+        // Just output current state, don't process rising edges
+        const output = this.state.dffState.get(node.id) ?? 0
+        if (node.outputs.length > 0) {
+          this.state.values.set(node.outputs[0], output)
+        }
+      } else {
+        this.evaluateNode(node)
+      }
     }
   }
 
@@ -487,8 +550,9 @@ import { JITSimulator } from './simulator-jit'
 import { LevelizedSimulator } from './simulator-levelized'
 import { JIT2Simulator } from './simulator-jit2'
 import { WASMSimulator } from './simulator-wasm'
+import { EventDrivenSimulator } from './simulator-event'
 
-export type SimulatorStrategy = 'interpreter' | 'typed-array' | 'jit' | 'levelized' | 'jit2' | 'wasm'
+export type SimulatorStrategy = 'interpreter' | 'typed-array' | 'jit' | 'levelized' | 'jit2' | 'wasm' | 'event'
 
 export type SimulateResult =
   | { ok: true; simulator: ISimulator; modules: Map<string, CompiledModule> }
@@ -552,6 +616,9 @@ export function createSimulator(
       break
     case 'wasm':
       simulator = new WASMSimulator(main, modules)
+      break
+    case 'event':
+      simulator = new EventDrivenSimulator(main, modules)
       break
     default:
       return { ok: false, error: `Unknown strategy: ${strategy} ` }

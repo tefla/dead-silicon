@@ -165,6 +165,15 @@ function flattenModule(
     getWireIndex: (name: string, width: number) => number,
     freshWire: (width: number) => number
 ): void {
+    // PHASE 0: Pre-register all named wires (especially outputs and assignment targets)
+    // This ensures forward references find the correct wire index
+    for (const [wireName, width] of module.wires) {
+        const prefixedName = prefix ? `${prefix}.${wireName}` : wireName
+        if (!wireNames.has(prefixedName)) {
+            getWireIndex(prefixedName, width)
+        }
+    }
+
     // Helper to resolve a wire name with prefix and aliases
     const resolveWire = (name: string): number => {
         // First, resolve any aliases
@@ -341,8 +350,53 @@ function flattenModule(
                     wireNames.set(theirWireName, ourWire)
                 }
 
-                // Recursively flatten the sub-module FIRST
-                // This ensures all internal wires are created
+                // IMPORTANT: Pre-map the sub-module's outputs BEFORE flattening
+                // This ensures that when the submodule creates nodes for its outputs,
+                // they write to our pre-registered wire, not a new one
+                const baseOutput = node.outputs[0]
+                for (let i = 0; i < subModule.outputs.length; i++) {
+                    const outputName = subModule.outputs[i].name
+                    const outputWidth = subModule.outputs[i].width
+
+                    // Follow the alias chain to find the actual internal wire name
+                    let resolved = outputName
+                    const seen = new Set<string>()
+                    while (subModule.aliases.has(resolved) && !seen.has(resolved)) {
+                        seen.add(resolved)
+                        resolved = subModule.aliases.get(resolved)!
+                    }
+
+                    // Our wire that other modules reference (pre-registered in PHASE 0)
+                    const ourDirectWire = prefix ? `${prefix}.${baseOutput}` : baseOutput
+                    const ourFieldWire = prefix ? `${prefix}.${baseOutput}.${outputName}` : `${baseOutput}.${outputName}`
+
+                    // Check if our output wire was pre-registered (forward reference case)
+                    let targetWire: number | undefined
+                    if (i === 0 && wireNames.has(ourDirectWire)) {
+                        targetWire = wireNames.get(ourDirectWire)!
+                    } else if (wireNames.has(ourFieldWire)) {
+                        targetWire = wireNames.get(ourFieldWire)!
+                    }
+
+                    // Pre-map the submodule's internal wire to our target wire
+                    // This ensures the submodule's producer node writes to our wire
+                    if (targetWire !== undefined) {
+                        const theirWireName = `${subPrefix}.${resolved}`
+                        wireNames.set(theirWireName, targetWire)
+                        // Also map the output name directly
+                        const theirOutputName = `${subPrefix}.${outputName}`
+                        wireNames.set(theirOutputName, targetWire)
+
+                        // Also map using the baseOutput name (which is what resolveWire will look for)
+                        // The alias system resolves ha2.sum -> half_adder_out_44.sum
+                        // So we need to map prefix.half_adder_out_44.sum -> targetWire
+                        const baseOutputWire = prefix ? `${prefix}.${baseOutput}.${outputName}` : `${baseOutput}.${outputName}`
+                        wireNames.set(baseOutputWire, targetWire)
+                    }
+                }
+
+                // Recursively flatten the sub-module
+                // Now that outputs are pre-mapped, producers will write to our wires
                 flattenModule(
                     subModule,
                     allModules,
@@ -357,9 +411,7 @@ function flattenModule(
                     freshWire
                 )
 
-                // NOW map the sub-module's outputs by following the alias chain
-                // to find the actual wire that was created during flattening
-                const baseOutput = node.outputs[0]
+                // Post-process: ensure all output mappings are in place
                 for (let i = 0; i < subModule.outputs.length; i++) {
                     const outputName = subModule.outputs[i].name
 
@@ -386,7 +438,7 @@ function flattenModule(
                     wireNames.set(theirWireName, theirWireIndex)
 
                     // Our field access wire (e.g., "alu_out.sum")
-                    const ourFieldWire = `${prefix}${baseOutput}.${outputName}`
+                    const ourFieldWire = prefix ? `${prefix}.${baseOutput}.${outputName}` : `${baseOutput}.${outputName}`
                     wireNames.set(ourFieldWire, theirWireIndex)
 
                     // Also map the direct output if it's the first output

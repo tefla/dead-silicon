@@ -32,6 +32,9 @@ export class WASMSimulator implements ISimulator {
     private romData: Map<string, Uint8Array>
     private ramPrevClock: Map<string, number>
 
+    // Pre-allocated buffer for convergence checking
+    private prevValues: Int32Array | null = null
+
     // Memory layout offsets (in i32 units)
     private valuesOffset = 0
     private dffStateOffset = 0
@@ -131,6 +134,9 @@ export class WASMSimulator implements ISimulator {
         this.values = new Int32Array(buffer, this.valuesOffset * 4, wireCount)
         this.dffState = new Int32Array(buffer, this.dffStateOffset * 4, dffCount)
         this.dffPrevClock = new Int32Array(buffer, this.dffPrevClockOffset * 4, dffCount)
+
+        // Pre-allocate buffer for convergence checking
+        this.prevValues = new Int32Array(wireCount)
 
         mod.dispose()
     }
@@ -454,17 +460,44 @@ export class WASMSimulator implements ISimulator {
     }
 
     step(): void {
-        if (!this.wasmComb || !this.wasmEdge) return
+        if (!this.wasmComb || !this.wasmEdge || !this.values || !this.prevValues) return
 
-        // 1. Evaluate combinational logic (in WASM)
-        this.wasmComb()
+        // 1. Evaluate combinational logic until stable (for feedback loops)
+        const maxIterations = 20
+        for (let i = 0; i < maxIterations; i++) {
+            // Copy current values to pre-allocated buffer
+            this.prevValues.set(this.values)
+            this.wasmComb()
+
+            // Check if values changed
+            let changed = false
+            for (let j = 0; j < this.values.length; j++) {
+                if (this.values[j] !== this.prevValues[j]) {
+                    changed = true
+                    break
+                }
+            }
+            if (!changed) break
+        }
 
         // 2. Handle clock edges (in WASM)
         const needsReevaluate = this.wasmEdge()
 
-        // 3. Re-evaluate if any edges triggered
+        // 3. Re-evaluate combinational logic until stable
         if (needsReevaluate) {
-            this.wasmComb()
+            for (let i = 0; i < maxIterations; i++) {
+                this.prevValues.set(this.values)
+                this.wasmComb()
+
+                let changed = false
+                for (let j = 0; j < this.values.length; j++) {
+                    if (this.values[j] !== this.prevValues[j]) {
+                        changed = true
+                        break
+                    }
+                }
+                if (!changed) break
+            }
         }
     }
 
