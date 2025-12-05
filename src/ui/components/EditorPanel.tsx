@@ -35,7 +35,7 @@ export function EditorPanel() {
           <MonacoEditor
             value={editorValue}
             language={activeLanguage}
-            onChange={updateEditorValue}
+            onChange={(value) => updateEditorValue(value ?? '')}
           />
         </Suspense>
       </div>

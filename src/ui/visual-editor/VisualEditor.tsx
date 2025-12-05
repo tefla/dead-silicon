@@ -16,8 +16,8 @@ import '@xyflow/react/dist/style.css'
 import { nodeTypes } from './nodes'
 import { edgeTypes } from './edges'
 import { ComponentPalette } from './ComponentPalette'
-import { type GateType, type LayoutData } from './types'
-import { wireSourceToVisual, extractLayout, visualToAst, astToWireSource } from './ast-sync'
+import { type GateType } from './types'
+import { wireSourceToVisual, extractLayout, visualToAst, astToWireSource, type LayoutData } from './ast-sync'
 import { applyCircuitLayout, needsLayout } from './auto-layout'
 
 export interface VisualEditorProps {

@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, Suspense } from 'react'
 import { VisualEditor } from './VisualEditor'
 import { MonacoEditor } from '../monaco/MonacoEditor'
-import { type LayoutData } from './types'
+import { type LayoutData } from './ast-sync'
 import { GripVertical, Code, Cpu, Eye, EyeOff } from 'lucide-react'
 
 // Default Wire code for a simple NOT gate circuit

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { usePlaygroundStore } from '../store/usePlaygroundStore'
-import { createSimulator, Simulator } from '../../wire/simulator'
+import { createSimulator, type ISimulator } from '../../wire/simulator'
 import { assemble } from '../../pulse/assembler'
 import { CPU, SimpleIO } from '../../fpga/cpu'
 import { createMemory } from '../../fpga/memory'
@@ -35,7 +35,7 @@ export function useSimulation() {
     clearInputQueue,
   } = usePlaygroundStore()
 
-  const simulatorRef = useRef<Simulator | null>(null)
+  const simulatorRef = useRef<ISimulator | null>(null)
   const cpuRef = useRef<CPU | null>(null)
   const ioRef = useRef<SimpleIO | null>(null)
   const rafIdRef = useRef<number | null>(null)

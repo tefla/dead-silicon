@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import type { Article, Category, CodeExample } from './types'
 import { getArticleById } from './articles'
 
@@ -147,7 +147,7 @@ export function ArticleViewer({
 function MarkdownContent({ content }: { content: string }) {
   // Process markdown to HTML-like elements
   const lines = content.trim().split('\n')
-  const elements: JSX.Element[] = []
+  const elements: React.ReactElement[] = []
   let i = 0
 
   while (i < lines.length) {
@@ -219,7 +219,7 @@ function MarkdownContent({ content }: { content: string }) {
 // Inline markdown (bold, code, etc)
 function InlineMarkdown({ text }: { text: string }) {
   // Process inline elements
-  const parts: (string | JSX.Element)[] = []
+  const parts: (string | React.ReactElement)[] = []
   let remaining = text
   let key = 0
 
@@ -384,7 +384,7 @@ function SyntaxHighlight({ code, language }: { code: string; language: 'wire' | 
 function HighlightLine({ line, language }: { line: string; language: 'wire' | 'pulse' }) {
   if (language === 'wire') {
     // Wire syntax highlighting
-    const parts: JSX.Element[] = []
+    const parts: React.ReactElement[] = []
     let remaining = line
     let key = 0
 
@@ -399,7 +399,7 @@ function HighlightLine({ line, language }: { line: string; language: 'wire' | 'p
     return <>{highlightWireTokens(remaining)}</>
   } else {
     // Pulse syntax highlighting
-    const parts: JSX.Element[] = []
+    const parts: React.ReactElement[] = []
     let remaining = line
     let key = 0
 
@@ -415,10 +415,10 @@ function HighlightLine({ line, language }: { line: string; language: 'wire' | 'p
   }
 }
 
-function highlightWireTokens(text: string): JSX.Element {
+function highlightWireTokens(text: string): React.ReactElement {
   const keywords = ['module', 'nand', 'dff', 'ram', 'rom', 'mux', 'and', 'or', 'xor', 'not']
-  const parts: (string | JSX.Element)[] = []
-  const tokens = text.split(/(\s+|[(),:=\[\]->]+)/)
+  const parts: (string | React.ReactElement)[] = []
+  const tokens = text.split(/(\s+|[(),:=\[\]\->]+)/)
   let key = 0
 
   for (const token of tokens) {
@@ -436,11 +436,11 @@ function highlightWireTokens(text: string): JSX.Element {
   return <>{parts}</>
 }
 
-function highlightPulseTokens(text: string): JSX.Element {
+function highlightPulseTokens(text: string): React.ReactElement {
   const instructions = ['LDA', 'LDX', 'LDY', 'STA', 'STX', 'STY', 'ADC', 'SBC', 'AND', 'ORA', 'EOR',
     'CMP', 'CPX', 'CPY', 'INX', 'INY', 'DEX', 'DEY', 'TAX', 'TAY', 'TXA', 'TYA',
     'PHA', 'PLA', 'JMP', 'JSR', 'RTS', 'BEQ', 'BNE', 'BCC', 'BCS', 'HLT', 'BRK', 'NOP']
-  const parts: (string | JSX.Element)[] = []
+  const parts: (string | React.ReactElement)[] = []
   const tokens = text.split(/(\s+|[#$,]+)/)
   let key = 0
 

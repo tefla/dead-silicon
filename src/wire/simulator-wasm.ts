@@ -116,7 +116,9 @@ export class WASMSimulator implements ISimulator {
 
         // Emit binary and instantiate
         const binary = mod.emitBinary()
-        const wasmModule = new WebAssembly.Module(binary)
+        // Create a new ArrayBuffer from the binary for WebAssembly.Module compatibility
+        const wasmBuffer = binary.buffer.slice(binary.byteOffset, binary.byteOffset + binary.byteLength) as ArrayBuffer
+        const wasmModule = new WebAssembly.Module(wasmBuffer)
 
         // Create memory externally so we can access it from JS
         this.memory = new WebAssembly.Memory({ initial: pages, maximum: pages })
