@@ -4,9 +4,22 @@
 import { describe, it, expect } from 'vitest'
 import { assemble } from '../pulse/assembler'
 import { CPU, SimpleIO } from './cpu'
-import { createMemory } from './memory'
+import { createMemory, IO_PORTS } from './memory'
+import { createSimulator } from '../wire/simulator'
 import { readFileSync } from 'fs'
 import { join } from 'path'
+
+// Load Wire HDL modules for hardware simulation
+function loadWireModules(): string {
+  const moduleNames = [
+    'gates', 'arithmetic', 'registers', 'register16', 'adder16',
+    'mux8', 'mux16', 'inc16', 'alu8', 'mux4way8', 'mux8way8',
+    'decoder', 'pc', 'cpu_minimal'
+  ]
+  return moduleNames
+    .map(m => readFileSync(join(__dirname, `../assets/wire/${m}.wire`), 'utf-8'))
+    .join('\n')
+}
 
 describe('Boot Sequence', () => {
   it('should assemble boot.pulse without errors', () => {
@@ -222,5 +235,104 @@ describe('Boot Sequence', () => {
 
     // Should echo input
     expect(output).toContain('s')
+  })
+})
+
+describe('Boot Sequence with Wire HDL CPU', () => {
+  it('should boot with WASM simulator', async () => {
+    // Load Wire HDL modules
+    const wireCode = loadWireModules() + `
+module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted):
+  cpu = cpu_minimal(clk, reset, data_in)
+  addr = cpu.addr
+  data_out = cpu.data_out
+  mem_write = cpu.mem_write
+  halted = cpu.halted
+`
+
+    // Assemble boot program
+    const bootSource = readFileSync(
+      join(__dirname, '../assets/pulse/boot.pulse'),
+      'utf-8'
+    )
+    const asmResult = assemble(bootSource)
+    expect(asmResult.ok).toBe(true)
+    if (!asmResult.ok) return
+
+    // Create WASM simulator
+    const simResult = await createSimulator(wireCode, 'test_cpu', 'wasm')
+    expect(simResult.ok).toBe(true)
+    if (!simResult.ok) {
+      console.error('Simulator error:', simResult.error)
+      return
+    }
+
+    const sim = simResult.simulator
+
+    // Create memory and load boot program
+    const memory = new Uint8Array(65536)
+    for (let i = 0; i < asmResult.program.binary.length; i++) {
+      memory[asmResult.program.origin + i] = asmResult.program.binary[i]
+    }
+    // Set reset vector
+    memory[0xFFFC] = asmResult.program.origin & 0xFF
+    memory[0xFFFD] = (asmResult.program.origin >> 8) & 0xFF
+
+    // Reset CPU
+    sim.setInput('clk', 0)
+    sim.setInput('reset', 1)
+    sim.setInput('data_in', 0)
+    sim.step()
+    sim.setInput('clk', 1)
+    sim.step()
+    sim.setInput('clk', 0)
+    sim.setInput('reset', 0)
+    sim.step()
+
+    // Simulate I/O - run enough cycles for full boot sequence
+    // Wire HDL CPU needs ~500 clock cycles to boot (vs ~100 instructions in JS emulator)
+    const serialOut: number[] = []
+    const maxCycles = 600
+
+    for (let cycle = 0; cycle < maxCycles; cycle++) {
+      const addr = sim.getOutput('addr')
+      const memWrite = sim.getOutput('mem_write')
+
+      // Handle memory write (capture serial output)
+      if (memWrite === 1) {
+        const dataOut = sim.getOutput('data_out')
+        if (addr === IO_PORTS.SERIAL_TX) {
+          serialOut.push(dataOut)
+        } else {
+          memory[addr] = dataOut
+        }
+      }
+
+      // Provide data from memory
+      sim.setInput('data_in', memory[addr])
+
+      // Clock cycle
+      sim.setInput('clk', 1)
+      sim.step()
+      sim.setInput('clk', 0)
+      sim.step()
+
+      if (sim.getOutput('halted')) break
+    }
+
+    // Check serial output
+    const output = serialOut.map(c => String.fromCharCode(c)).join('')
+    console.log('WASM simulator serial output:')
+    console.log(output)
+
+    // Verify boot banner was printed
+    expect(output).toContain('DEAD SILICON')
+    expect(output).toContain('v0.1')
+
+    // Verify self-test passed
+    expect(output).toContain('OK')
+
+    // Should not have failed
+    expect(output).not.toContain('FAIL')
   })
 })
