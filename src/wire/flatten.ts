@@ -167,10 +167,73 @@ function flattenModule(
 ): void {
     // PHASE 0: Pre-register all named wires (especially outputs and assignment targets)
     // This ensures forward references find the correct wire index
+    // Two-pass approach: first register non-field wires, then handle field access aliases
+    const fieldAccessWires: [string, number][] = []
     for (const [wireName, width] of module.wires) {
+        if (wireName.includes('.')) {
+            fieldAccessWires.push([wireName, width])
+        } else {
+            const prefixedName = prefix ? `${prefix}.${wireName}` : wireName
+            if (!wireNames.has(prefixedName)) {
+                getWireIndex(prefixedName, width)
+            }
+        }
+    }
+
+    // Second pass: handle field access wires (e.g., "alu.result", "alu.z", "alu.n")
+    // These may need to share wire indices with aliased module outputs
+    for (const [wireName, width] of fieldAccessWires) {
         const prefixedName = prefix ? `${prefix}.${wireName}` : wireName
         if (!wireNames.has(prefixedName)) {
-            getWireIndex(prefixedName, width)
+            let sharedWireIndex: number | undefined
+            const dotIdx = wireName.indexOf('.')
+            const baseName = wireName.slice(0, dotIdx)
+            const fieldName = wireName.slice(dotIdx + 1)
+
+            // Check if baseName is aliased to a module output
+            if (module.aliases.has(baseName)) {
+                const aliasTarget = module.aliases.get(baseName)!
+                const aliasTargetPrefixed = prefix ? `${prefix}.${aliasTarget}` : aliasTarget
+
+                // Find the module node that produces aliasTarget
+                for (const node of module.nodes) {
+                    if (node.type === 'module' && node.outputs[0] === aliasTarget) {
+                        const subModule = allModules.get(node.moduleName!)
+                        if (subModule) {
+                            // Check ALL outputs, not just the first one
+                            for (let i = 0; i < subModule.outputs.length; i++) {
+                                if (subModule.outputs[i].name === fieldName) {
+                                    if (i === 0) {
+                                        // First output: share with the aliasTarget wire itself
+                                        if (!wireNames.has(aliasTargetPrefixed)) {
+                                            const targetWidth = module.wires.get(aliasTarget) ?? subModule.outputs[0].width
+                                            getWireIndex(aliasTargetPrefixed, targetWidth)
+                                        }
+                                        sharedWireIndex = wireNames.get(aliasTargetPrefixed)!
+                                    } else {
+                                        // Secondary output: share with aliasTarget.fieldName wire
+                                        const aliasTargetFieldPrefixed = prefix
+                                            ? `${prefix}.${aliasTarget}.${fieldName}`
+                                            : `${aliasTarget}.${fieldName}`
+                                        if (!wireNames.has(aliasTargetFieldPrefixed)) {
+                                            getWireIndex(aliasTargetFieldPrefixed, subModule.outputs[i].width)
+                                        }
+                                        sharedWireIndex = wireNames.get(aliasTargetFieldPrefixed)!
+                                    }
+                                    break
+                                }
+                            }
+                        }
+                        break
+                    }
+                }
+            }
+
+            if (sharedWireIndex !== undefined) {
+                wireNames.set(prefixedName, sharedWireIndex)
+            } else {
+                getWireIndex(prefixedName, width)
+            }
         }
     }
 
@@ -189,6 +252,31 @@ function flattenModule(
         // Check if this wire already exists
         if (wireNames.has(prefixedName)) {
             return wireNames.get(prefixedName)!
+        }
+
+        // Handle field access patterns: if name is "alu.result" and alu -> alu8_out_3180,
+        // also check if "alu8_out_3180.result" exists
+        if (resolved.includes('.')) {
+            const dotIdx = resolved.indexOf('.')
+            const baseName = resolved.slice(0, dotIdx)
+            const fieldName = resolved.slice(dotIdx + 1)
+
+            // Try resolving the base name through aliases
+            let resolvedBase = baseName
+            const seenBase = new Set<string>()
+            while (module.aliases.has(resolvedBase) && !seenBase.has(resolvedBase)) {
+                seenBase.add(resolvedBase)
+                resolvedBase = module.aliases.get(resolvedBase)!
+            }
+
+            if (resolvedBase !== baseName) {
+                // Base name was aliased, try the transformed name
+                const transformedName = `${resolvedBase}.${fieldName}`
+                const prefixedTransformed = prefix ? `${prefix}.${transformedName}` : transformedName
+                if (wireNames.has(prefixedTransformed)) {
+                    return wireNames.get(prefixedTransformed)!
+                }
+            }
         }
 
         // Create it with default width (will be updated by the node that produces it)
@@ -376,6 +464,21 @@ function flattenModule(
                         targetWire = wireNames.get(ourDirectWire)!
                     } else if (wireNames.has(ourFieldWire)) {
                         targetWire = wireNames.get(ourFieldWire)!
+                    }
+
+                    // Also check aliased names: find any alias X -> baseOutput, then check X.outputName
+                    // This handles cases where user wrote "alu.result" but baseOutput is "alu8_out_xxx"
+                    if (targetWire === undefined) {
+                        for (const [aliasName, aliasTarget] of module.aliases) {
+                            if (aliasTarget === baseOutput) {
+                                // Found alias: aliasName -> baseOutput
+                                const aliasedFieldWire = prefix ? `${prefix}.${aliasName}.${outputName}` : `${aliasName}.${outputName}`
+                                if (wireNames.has(aliasedFieldWire)) {
+                                    targetWire = wireNames.get(aliasedFieldWire)!
+                                    break
+                                }
+                            }
+                        }
                     }
 
                     // Pre-map the submodule's internal wire to our target wire

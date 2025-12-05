@@ -508,10 +508,12 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; Build branch target for BEQ: (PC+1) + sign_extended_offset
   ; The +1 accounts for the pending PC increment in state 2
   ; So the offset is relative to PC+2 (address after the 2-byte BEQ instruction)
-  ; Sign-extend offset[7] to make upper 8 bits
-  sign_bit = offset[7]
+  ; NOTE: Use data_in directly (not offset register output) for branch calculation
+  ; This ensures the branch target is computed combinationally in the same cycle
+  ; as the branch decision, without depending on register feedback timing
+  sign_bit = data_in[7]
   offset_hi = concat(sign_bit, sign_bit, sign_bit, sign_bit, sign_bit, sign_bit, sign_bit, sign_bit)
-  offset_16 = concat(offset_hi, offset)
+  offset_16 = concat(offset_hi, data_in)
 
   ; Add offset to (PC + 1) by using carry-in=1
   branch_result = adder16(pc_out, offset_16, 1)

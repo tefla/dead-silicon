@@ -2,7 +2,11 @@
 // These components are building blocks for the Wire CPU
 
 import { describe, it, expect } from 'vitest'
-import { createSimulator } from './simulator'
+import { createSimulator as createSimulatorBase } from './simulator'
+
+// Use WASM strategy for faster tests (interpreter is too slow for CPU-scale circuits)
+const createSimulator = (source: string, mainModule?: string) =>
+  createSimulatorBase(source, mainModule, 'wasm')
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 
@@ -6976,7 +6980,7 @@ describe('Boot Sequence', () => {
   const cpuWithIO = gatesWire + '\n' + arithmeticWire + '\n' + registersWire + '\n' +
     register16Wire + '\n' + adder16Wire + '\n' + mux8Wire + '\n' + mux16Wire + '\n' +
     inc16Wire + '\n' + alu8Wire + '\n' + mux4way8Wire + '\n' + mux8way8Wire + '\n' +
-    decoderWire + '\n' + cpuMinimalWire + '\n' + addrDecodeWire + '\n' + ioCtrlWire
+    decoderWire + '\n' + pcWire + '\n' + cpuMinimalWire + '\n' + addrDecodeWire + '\n' + ioCtrlWire
 
   // Boot program: LDA #$01, STA $8002 (LED on), LDA #'O', STA $8001, LDA #'K', STA $8001, LDA #$0A, STA $8001, LDA #$00, STA $8002 (LED off), HLT
   // This matches boot_minimal.pulse but without JSR/RTS for simpler testing
