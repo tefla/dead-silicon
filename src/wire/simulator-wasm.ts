@@ -32,6 +32,10 @@ export class WASMSimulator implements ISimulator {
     private romData: Map<string, Uint8Array>
     private ramPrevClock: Map<string, number>
 
+    // LUT offsets in memory (node id -> memory offset in i32 units)
+    private lutOffsets: Map<string, number> = new Map()
+    private lutData: Map<string, Uint32Array> = new Map()
+
     // Pre-allocated buffer for convergence checking
     private prevValues: Int32Array | null = null
 
@@ -87,7 +91,19 @@ export class WASMSimulator implements ISimulator {
         this.valuesOffset = 0
         this.dffStateOffset = wireCount
         this.dffPrevClockOffset = wireCount + dffCount
-        const totalI32s = wireCount + dffCount * 2
+        let totalI32s = wireCount + dffCount * 2
+
+        // Allocate space for LUTs after DFF state
+        // Find all LUT nodes and calculate their sizes
+        let lutOffset = totalI32s
+        for (const node of this.sortResult.combinationalOrder) {
+            if (node.type === 'lut' && node.lutData) {
+                this.lutOffsets.set(node.id, lutOffset)
+                this.lutData.set(node.id, node.lutData)
+                lutOffset += node.lutData.length  // Each entry is one i32
+            }
+        }
+        totalI32s = lutOffset
 
         // Memory: 1 page = 64KB, we need totalI32s * 4 bytes
         const pages = Math.ceil((totalI32s * 4) / 65536) || 1
@@ -136,6 +152,17 @@ export class WASMSimulator implements ISimulator {
         this.values = new Int32Array(buffer, this.valuesOffset * 4, wireCount)
         this.dffState = new Int32Array(buffer, this.dffStateOffset * 4, dffCount)
         this.dffPrevClock = new Int32Array(buffer, this.dffPrevClockOffset * 4, dffCount)
+
+        // Copy LUT data into WASM memory
+        const memoryI32 = new Int32Array(buffer)
+        for (const [nodeId, lutOffset] of this.lutOffsets) {
+            const data = this.lutData.get(nodeId)
+            if (data) {
+                for (let i = 0; i < data.length; i++) {
+                    memoryI32[lutOffset + i] = data[i]
+                }
+            }
+        }
 
         // Pre-allocate buffer for convergence checking
         this.prevValues = new Int32Array(wireCount)
@@ -360,6 +387,82 @@ export class WASMSimulator implements ISimulator {
             case 'output':
                 // No-op
                 return null
+
+            case 'lut': {
+                // LUT (lookup table) - memoized combinational module
+                // The LUT data is stored at a known offset in memory
+                // We need to: 1) compute input index, 2) load from table, 3) unpack outputs
+
+                const outputWidths = node.lutOutputWidths!
+
+                // Get the LUT offset from the map (set up during memory allocation)
+                const lutOffset = this.lutOffsets.get(node.id)
+                if (lutOffset === undefined) {
+                    // LUT not allocated - skip
+                    return null
+                }
+
+                // Helper to create fresh input index expression
+                // We regenerate this for each output to avoid Binaryen CSE optimizer issues
+                const makeIndexExpr = () => {
+                    let indexExpr: number | null = null
+                    let bitPos = 0
+                    for (let i = 0; i < node.inputs.length; i++) {
+                        const inAddr = (this.valuesOffset + node.inputs[i]) * 4
+                        const width = this.circuit.wireWidths[node.inputs[i]] || 1
+                        const mask = (1 << width) - 1
+
+                        const part = mod.i32.shl(
+                            mod.i32.and(
+                                mod.i32.load(0, 4, mod.i32.const(inAddr)),
+                                mod.i32.const(mask)
+                            ),
+                            mod.i32.const(bitPos)
+                        )
+
+                        if (indexExpr === null) {
+                            indexExpr = part
+                        } else {
+                            indexExpr = mod.i32.or(indexExpr, part)
+                        }
+                        bitPos += width
+                    }
+                    return indexExpr ?? mod.i32.const(0)
+                }
+
+                // Helper to load packed output (creates fresh expression each time)
+                const loadPackedOutput = () => {
+                    const lutAddr = mod.i32.add(
+                        mod.i32.const(lutOffset * 4),
+                        mod.i32.shl(makeIndexExpr(), mod.i32.const(2))
+                    )
+                    return mod.i32.load(0, 4, lutAddr)
+                }
+
+                // Generate stores for all outputs, unpacking from packed value
+                // Each store creates its own fresh load expression to avoid Binaryen optimizer issues
+                const stmts: number[] = []
+                let outBitPos = 0
+                for (let i = 0; i < node.outputs.length; i++) {
+                    const outAddr = (this.valuesOffset + node.outputs[i]) * 4
+                    const width = outputWidths[i]
+                    const mask = (1 << width) - 1
+
+                    stmts.push(
+                        mod.i32.store(
+                            0, 4,
+                            mod.i32.const(outAddr),
+                            mod.i32.and(
+                                mod.i32.shr_u(loadPackedOutput(), mod.i32.const(outBitPos)),
+                                mod.i32.const(mask)
+                            )
+                        )
+                    )
+                    outBitPos += width
+                }
+
+                return stmts.length === 1 ? stmts[0] : mod.block(null, stmts)
+            }
 
             default:
                 return null

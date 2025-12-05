@@ -328,6 +328,36 @@ export class LevelizedSimulator implements ISimulator {
                 break
             }
 
+            case 'lut': {
+                // LUT (lookup table) - memoized combinational module
+                // Pack all inputs into a single index
+                let inputIndex = 0
+                let bitPos = 0
+                for (let i = 0; i < node.inputs.length; i++) {
+                    const val = values[node.inputs[i]]
+                    // Get input width from circuit wireWidths
+                    const width = this.circuit.wireWidths[node.inputs[i]] || 1
+                    const mask = (1 << width) - 1
+                    inputIndex |= (val & mask) << bitPos
+                    bitPos += width
+                }
+
+                // Look up precomputed result
+                const lutData = node.lutData!
+                const packedOutput = lutData[inputIndex]
+
+                // Unpack outputs
+                const outputWidths = node.lutOutputWidths!
+                let outBitPos = 0
+                for (let i = 0; i < node.outputs.length; i++) {
+                    const width = outputWidths[i]
+                    const mask = (1 << width) - 1
+                    values[node.outputs[i]] = (packedOutput >> outBitPos) & mask
+                    outBitPos += width
+                }
+                break
+            }
+
             // Input and output nodes don't need evaluation
             case 'input':
             case 'output':

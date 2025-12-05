@@ -4,9 +4,344 @@
 
 import type { CompiledModule, Node, Wire } from './compiler'
 
+// Memoization configuration
+const MAX_LUT_INPUT_BITS = 8  // Maximum input width for LUT memoization (256 entries)
+const MIN_NODE_COUNT_FOR_LUT = 20  // Minimum nodes to justify LUT overhead
+
+/**
+ * Check if a module is memoizable (pure combinational with small input domain)
+ */
+function isMemoizable(module: CompiledModule, allModules: Map<string, CompiledModule>): boolean {
+    // Calculate total input width
+    let totalInputBits = 0
+    for (const input of module.inputs) {
+        totalInputBits += input.width
+    }
+
+    // Too many inputs - table would be too large
+    if (totalInputBits > MAX_LUT_INPUT_BITS) {
+        return false
+    }
+
+    // Check for sequential elements (DFFs, RAMs) recursively
+    return isPureCombinational(module, allModules, new Set())
+}
+
+/**
+ * Recursively check if a module is pure combinational (no DFFs, RAMs)
+ */
+function isPureCombinational(
+    module: CompiledModule,
+    allModules: Map<string, CompiledModule>,
+    visited: Set<string>
+): boolean {
+    // Avoid infinite recursion
+    if (visited.has(module.name)) return true
+    visited.add(module.name)
+
+    for (const node of module.nodes) {
+        // DFF or RAM makes it sequential
+        if (node.type === 'dff' || node.type === 'ram') {
+            return false
+        }
+
+        // Check sub-modules recursively
+        if (node.type === 'module') {
+            const subModule = allModules.get(node.moduleName!)
+            if (subModule && !isPureCombinational(subModule, allModules, visited)) {
+                return false
+            }
+        }
+    }
+
+    return true
+}
+
+/**
+ * Count the number of primitive nodes in a module (for deciding if LUT is worth it)
+ */
+function countNodes(
+    module: CompiledModule,
+    allModules: Map<string, CompiledModule>,
+    visited: Set<string>
+): number {
+    if (visited.has(module.name)) return 0
+    visited.add(module.name)
+
+    let count = 0
+    for (const node of module.nodes) {
+        if (node.type === 'module') {
+            const subModule = allModules.get(node.moduleName!)
+            if (subModule) {
+                count += countNodes(subModule, allModules, visited)
+            }
+        } else if (node.type !== 'input' && node.type !== 'output') {
+            count++
+        }
+    }
+    return count
+}
+
+/**
+ * Precompute lookup table by simulating all input combinations
+ */
+function precomputeLUT(
+    module: CompiledModule,
+    allModules: Map<string, CompiledModule>
+): { lutData: Uint32Array, outputWidths: number[] } {
+    // Calculate total input and output widths
+    let totalInputBits = 0
+    for (const input of module.inputs) {
+        totalInputBits += input.width
+    }
+
+    // Total entries = 2^inputBits
+    const numEntries = 1 << totalInputBits
+
+    // Calculate how many 32-bit words we need per entry
+    // Pack all outputs into consecutive bits
+    let totalOutputBits = 0
+    const outputWidths: number[] = []
+    for (const output of module.outputs) {
+        outputWidths.push(output.width)
+        totalOutputBits += output.width
+    }
+
+    // For simplicity, we'll store one Uint32 per entry (max 32 output bits)
+    // This works for decoder which has ~28 1-bit outputs
+    if (totalOutputBits > 32) {
+        throw new Error(`Module ${module.name} has ${totalOutputBits} output bits, max 32 supported for LUT`)
+    }
+
+    const lutData = new Uint32Array(numEntries)
+
+    // Create a mini flattened circuit for this module
+    const tempCircuit = flattenForLUT(module, allModules)
+
+    // Simulate all input combinations
+    for (let inputVal = 0; inputVal < numEntries; inputVal++) {
+        // Set inputs by distributing bits across input wires
+        let bitPos = 0
+        for (const input of tempCircuit.inputs) {
+            const mask = (1 << input.width) - 1
+            const val = (inputVal >> bitPos) & mask
+            tempCircuit.wires[input.index] = val
+            bitPos += input.width
+        }
+
+        // Evaluate combinational logic in levelized order
+        evaluateCombinational(tempCircuit)
+
+        // Pack outputs into a single 32-bit value
+        let packedOutput = 0
+        let outBitPos = 0
+        for (let i = 0; i < tempCircuit.outputs.length; i++) {
+            const outVal = tempCircuit.wires[tempCircuit.outputs[i].index]
+            const mask = (1 << outputWidths[i]) - 1
+            packedOutput |= (outVal & mask) << outBitPos
+            outBitPos += outputWidths[i]
+        }
+
+        lutData[inputVal] = packedOutput
+    }
+
+    return { lutData, outputWidths }
+}
+
+// Temporary structure for LUT precomputation
+interface TempCircuit {
+    wires: number[]
+    inputs: { name: string; index: number; width: number }[]
+    outputs: { name: string; index: number; width: number }[]
+    nodes: FlatNode[]
+}
+
+/**
+ * Create a temporary flattened circuit for LUT precomputation
+ */
+function flattenForLUT(
+    module: CompiledModule,
+    allModules: Map<string, CompiledModule>
+): TempCircuit {
+    resetFlatWireCounter()
+
+    const wireNames = new Map<string, number>()
+    const wireWidths: number[] = []
+    const nodes: FlatNode[] = []
+    const dffNodes: FlatNode[] = []  // Should remain empty for memoizable modules
+    const ramNodes: FlatNode[] = []
+    const romNodes: FlatNode[] = []
+
+    const getWireIndex = (name: string, width: number = 1): number => {
+        if (wireNames.has(name)) {
+            return wireNames.get(name)!
+        }
+        const index = genFlatWireId()
+        wireNames.set(name, index)
+        wireWidths[index] = width
+        return index
+    }
+
+    const freshWire = (width: number = 1): number => {
+        const index = genFlatWireId()
+        wireWidths[index] = width
+        return index
+    }
+
+    // Register inputs
+    const inputs: { name: string; index: number; width: number }[] = []
+    for (const input of module.inputs) {
+        const index = getWireIndex(input.name, input.width)
+        inputs.push({ name: input.name, index, width: input.width })
+    }
+
+    // Flatten the module
+    flattenModule(
+        module,
+        allModules,
+        '',
+        wireNames,
+        wireWidths,
+        nodes,
+        dffNodes,
+        ramNodes,
+        romNodes,
+        getWireIndex,
+        freshWire
+    )
+
+    // Register outputs
+    const outputs: { name: string; index: number; width: number }[] = []
+    for (const output of module.outputs) {
+        let resolved = output.name
+        const seen = new Set<string>()
+        while (module.aliases.has(resolved) && !seen.has(resolved)) {
+            seen.add(resolved)
+            resolved = module.aliases.get(resolved)!
+        }
+
+        let index: number
+        if (wireNames.has(resolved)) {
+            index = wireNames.get(resolved)!
+        } else {
+            index = getWireIndex(resolved, output.width)
+        }
+        wireNames.set(output.name, index)
+        outputs.push({ name: output.name, index, width: output.width })
+    }
+
+    // Sort nodes by level for evaluation
+    const sortedNodes = topologicalSort(nodes, flatWireCounter)
+
+    return {
+        wires: new Array(flatWireCounter).fill(0),
+        inputs,
+        outputs,
+        nodes: sortedNodes
+    }
+}
+
+/**
+ * Topological sort of nodes for levelized evaluation
+ */
+function topologicalSort(nodes: FlatNode[], wireCount: number): FlatNode[] {
+    // Build dependency graph: for each node, which wires it needs
+    const wireProducers = new Map<number, FlatNode>()
+    for (const node of nodes) {
+        for (const out of node.outputs) {
+            wireProducers.set(out, node)
+        }
+    }
+
+    // Calculate levels
+    const nodeLevel = new Map<FlatNode, number>()
+
+    function getLevel(node: FlatNode): number {
+        if (nodeLevel.has(node)) return nodeLevel.get(node)!
+
+        let maxInputLevel = -1
+        for (const inp of node.inputs) {
+            const producer = wireProducers.get(inp)
+            if (producer && producer !== node) {
+                maxInputLevel = Math.max(maxInputLevel, getLevel(producer))
+            }
+        }
+
+        const level = maxInputLevel + 1
+        nodeLevel.set(node, level)
+        return level
+    }
+
+    for (const node of nodes) {
+        getLevel(node)
+    }
+
+    // Sort by level
+    return [...nodes].sort((a, b) => (nodeLevel.get(a) ?? 0) - (nodeLevel.get(b) ?? 0))
+}
+
+/**
+ * Evaluate combinational logic (simplified - no DFFs)
+ */
+function evaluateCombinational(circuit: TempCircuit): void {
+    for (const node of circuit.nodes) {
+        switch (node.type) {
+            case 'const':
+                circuit.wires[node.outputs[0]] = node.constValue ?? 0
+                break
+
+            case 'nand': {
+                const a = circuit.wires[node.inputs[0]]
+                const b = circuit.wires[node.inputs[1]]
+                const mask = node.mask ?? ((1 << node.width) - 1)
+                circuit.wires[node.outputs[0]] = (~(a & b)) & mask
+                break
+            }
+
+            case 'index': {
+                const input = circuit.wires[node.inputs[0]]
+                circuit.wires[node.outputs[0]] = (input >> (node.bitIndex ?? 0)) & 1
+                break
+            }
+
+            case 'slice': {
+                const input = circuit.wires[node.inputs[0]]
+                const mask = node.mask ?? ((1 << node.width) - 1)
+                circuit.wires[node.outputs[0]] = (input >> (node.sliceStart ?? 0)) & mask
+                break
+            }
+
+            case 'concat': {
+                let result = 0
+                let bitPos = 0
+                for (let i = 0; i < node.inputs.length; i++) {
+                    const val = circuit.wires[node.inputs[i]]
+                    const width = node.inputWidths?.[i] ?? 1
+                    result |= (val & ((1 << width) - 1)) << bitPos
+                    bitPos += width
+                }
+                circuit.wires[node.outputs[0]] = result
+                break
+            }
+
+            case 'rom': {
+                // ROM is technically allowed - it's like a big LUT
+                // But we don't have ROM data here, so skip
+                break
+            }
+
+            // Skip DFFs, RAMs (shouldn't be in memoizable modules)
+            case 'dff':
+            case 'ram':
+            case 'lut':
+                break
+        }
+    }
+}
+
 export interface FlatNode {
     id: string
-    type: 'nand' | 'dff' | 'const' | 'index' | 'slice' | 'concat' | 'ram' | 'rom' | 'input' | 'output'
+    type: 'nand' | 'dff' | 'const' | 'index' | 'slice' | 'concat' | 'ram' | 'rom' | 'input' | 'output' | 'lut'
     inputs: number[]      // Indices into the wire array
     outputs: number[]     // Indices into the wire array
     width: number
@@ -21,6 +356,11 @@ export interface FlatNode {
 
     // OPTIMIZATION: Precomputed mask for NAND and slice operations
     mask?: number
+
+    // LUT (lookup table) specific data - for memoized combinational modules
+    lutData?: Uint32Array   // Precomputed output values for each input combination
+    lutInputWidth?: number  // Total width of inputs (determines table size: 2^width entries)
+    lutOutputWidths?: number[] // Width of each output (for unpacking lutData)
 }
 
 export interface FlattenedCircuit {
@@ -427,6 +767,75 @@ function flattenModule(
                     // Unknown module - skip (will produce 0 output)
                     break
                 }
+
+                // Check if this module can be memoized as a LUT
+                const nodeCount = countNodes(subModule, allModules, new Set())
+                if (nodeCount >= MIN_NODE_COUNT_FOR_LUT && isMemoizable(subModule, allModules)) {
+                    // MEMOIZATION PATH: Create a single LUT node instead of inlining
+                    try {
+                        const { lutData, outputWidths } = precomputeLUT(subModule, allModules)
+
+                        // Calculate total input width
+                        let totalInputBits = 0
+                        for (const input of subModule.inputs) {
+                            totalInputBits += input.width
+                        }
+
+                        // Map inputs
+                        const inputIndices: number[] = []
+                        for (let i = 0; i < node.inputs.length && i < subModule.inputs.length; i++) {
+                            inputIndices.push(resolveWire(node.inputs[i]))
+                        }
+
+                        // Map outputs
+                        const outputIndices: number[] = []
+                        const baseOutput = node.outputs[0]
+                        for (let i = 0; i < subModule.outputs.length; i++) {
+                            const outputName = subModule.outputs[i].name
+                            const outputWidth = subModule.outputs[i].width
+
+                            // Get or create output wire
+                            let outIndex: number
+                            if (i === 0) {
+                                const ourDirectWire = prefix ? `${prefix}.${baseOutput}` : baseOutput
+                                outIndex = wireNames.has(ourDirectWire)
+                                    ? wireNames.get(ourDirectWire)!
+                                    : getWireIndex(ourDirectWire, outputWidth)
+                            } else {
+                                const ourFieldWire = prefix ? `${prefix}.${baseOutput}.${outputName}` : `${baseOutput}.${outputName}`
+                                outIndex = wireNames.has(ourFieldWire)
+                                    ? wireNames.get(ourFieldWire)!
+                                    : getWireIndex(ourFieldWire, outputWidth)
+                            }
+                            outputIndices.push(outIndex)
+
+                            // Also map the field wire
+                            const ourFieldWire = prefix ? `${prefix}.${baseOutput}.${outputName}` : `${baseOutput}.${outputName}`
+                            wireNames.set(ourFieldWire, outIndex)
+                        }
+
+                        // Create LUT node
+                        const lutNode: FlatNode = {
+                            id: `${prefix}${node.id}_lut`,
+                            type: 'lut',
+                            inputs: inputIndices,
+                            outputs: outputIndices,
+                            width: outputWidths.reduce((a, b) => a + b, 0),
+                            lutData,
+                            lutInputWidth: totalInputBits,
+                            lutOutputWidths: outputWidths
+                        }
+                        nodes.push(lutNode)
+
+                        // Done - skip the normal flattening
+                        break
+                    } catch (e) {
+                        // Fallback to normal flattening if LUT creation fails
+                        console.warn(`LUT creation failed for ${node.moduleName}, falling back to flattening:`, e)
+                    }
+                }
+
+                // NORMAL PATH: Inline the sub-module
 
                 // Create prefix for the inlined module
                 const subPrefix = prefix ? `${prefix}.${node.id}` : node.id
