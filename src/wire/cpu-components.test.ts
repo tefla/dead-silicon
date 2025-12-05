@@ -15,6 +15,12 @@ const adder16Wire = readFileSync(resolve(__dirname, '../assets/wire/adder16.wire
 const mux8Wire = readFileSync(resolve(__dirname, '../assets/wire/mux8.wire'), 'utf-8')
 const mux16Wire = readFileSync(resolve(__dirname, '../assets/wire/mux16.wire'), 'utf-8')
 const inc16Wire = readFileSync(resolve(__dirname, '../assets/wire/inc16.wire'), 'utf-8')
+const alu8Wire = readFileSync(resolve(__dirname, '../assets/wire/alu8.wire'), 'utf-8')
+const mux4way8Wire = readFileSync(resolve(__dirname, '../assets/wire/mux4way8.wire'), 'utf-8')
+const mux8way8Wire = readFileSync(resolve(__dirname, '../assets/wire/mux8way8.wire'), 'utf-8')
+const decoderWire = readFileSync(resolve(__dirname, '../assets/wire/decoder.wire'), 'utf-8')
+const pcWire = readFileSync(resolve(__dirname, '../assets/wire/pc.wire'), 'utf-8')
+const cpuMinimalWire = readFileSync(resolve(__dirname, '../assets/wire/cpu_minimal.wire'), 'utf-8')
 
 const stdlib = gatesWire + '\n' + arithmeticWire + '\n' + registersWire + '\n' + register16Wire + '\n' + adder16Wire + '\n' + mux8Wire + '\n' + mux16Wire + '\n' + inc16Wire
 
@@ -3161,11 +3167,19 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
     // Helper to run a program (memory as array, returns final state)
     // Stack is at $0100-$01FF, handled by stackMem array
     function runProgram(sim: ReturnType<typeof createSimulator> extends { ok: true, simulator: infer S } ? S : never, memory: number[], maxCycles: number = 50) {
-      // Reset CPU
+      // Reset CPU - goes to state 20 (RESET_LO)
       sim.setInput('reset', 1)
       sim.setInput('data_in', 0)
       clockCycle(sim)
       sim.setInput('reset', 0)
+
+      // Complete reset vector read (states 20 -> 21 -> 0)
+      // State 20: addr=$FFFC, read low byte of reset vector
+      sim.setInput('data_in', 0x00)  // Reset vector low byte -> $0000
+      clockCycle(sim)  // State 20 -> 21
+      // State 21: addr=$FFFD, read high byte of reset vector and load PC
+      sim.setInput('data_in', 0x00)  // Reset vector high byte -> $0000
+      clockCycle(sim)  // State 21 -> 0, PC loaded with $0000
 
       let cycles = 0
       const writes: { addr: number; value: number }[] = []
@@ -3226,7 +3240,7 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
     // Reset and Initial State
     // ==========================================
     describe('reset and initial state', () => {
-      it('starts in state 0 (FETCH_OP) after reset', () => {
+      it('starts in state 20 (RESET_LO) after reset, then reads reset vector', () => {
         const result = createSimulator(testModule, 'test_cpu')
         expect(result.ok).toBe(true)
         if (!result.ok) return
@@ -3236,21 +3250,57 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
         sim.setInput('data_in', 0)
         clockCycle(sim)
 
-        expect(sim.getOutput('state_out')).toBe(0)
-        expect(sim.getOutput('pc_out')).toBe(0)
+        // After reset, CPU goes to state 20 (RESET_LO) to read reset vector
+        expect(sim.getOutput('state_out')).toBe(20)
+        expect(sim.getOutput('addr')).toBe(0xFFFC)  // Reset vector low byte address
         expect(sim.getOutput('halted')).toBe(0)
+
+        // Complete reset vector read
+        sim.setInput('reset', 0)
+        sim.setInput('data_in', 0x00)  // Low byte of reset vector ($0000)
+        clockCycle(sim)
+        expect(sim.getOutput('state_out')).toBe(21)  // RESET_HI
+        expect(sim.getOutput('addr')).toBe(0xFFFD)  // Reset vector high byte address
+
+        sim.setInput('data_in', 0x00)  // High byte of reset vector ($0000)
+        clockCycle(sim)
+        expect(sim.getOutput('state_out')).toBe(22)  // RESET_DONE - load PC
+
+        clockCycle(sim)
+        expect(sim.getOutput('state_out')).toBe(0)  // Now in FETCH_OP
+        expect(sim.getOutput('pc_out')).toBe(0)     // PC loaded from reset vector
       })
 
-      it('PC starts at 0 after reset', () => {
+      it('PC starts at reset vector address after complete reset', () => {
         const result = createSimulator(testModule, 'test_cpu')
         expect(result.ok).toBe(true)
         if (!result.ok) return
 
         const sim = result.simulator
+        // Reset enters state 20 (RESET_LO)
         sim.setInput('reset', 1)
         sim.setInput('data_in', 0)
         clockCycle(sim)
+        sim.setInput('reset', 0)
 
+        // State 20: addr=$FFFC, provide reset vector low byte ($00)
+        expect(sim.getOutput('state_out')).toBe(20)
+        expect(sim.getOutput('addr')).toBe(0xFFFC)
+        sim.setInput('data_in', 0x00)  // Reset vector low byte
+        clockCycle(sim)
+
+        // State 21: addr=$FFFD, provide reset vector high byte ($00)
+        expect(sim.getOutput('state_out')).toBe(21)
+        expect(sim.getOutput('addr')).toBe(0xFFFD)
+        sim.setInput('data_in', 0x00)  // Reset vector high byte
+        clockCycle(sim)
+
+        // State 22: Load PC from reset vector registers
+        expect(sim.getOutput('state_out')).toBe(22)
+        clockCycle(sim)
+
+        // State 0: PC loaded from reset vector, addr=PC=$0000
+        expect(sim.getOutput('state_out')).toBe(0)
         expect(sim.getOutput('pc_out')).toBe(0)
         expect(sim.getOutput('addr')).toBe(0)
       })
@@ -6017,5 +6067,1150 @@ module test_cpu(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halte
         expect(final.flags & 0b0100).toBe(0)  // Negative flag clear
       })
     })
+
+    // ==========================================
+    // JSR - Jump to Subroutine (0x20)
+    // ==========================================
+    describe('JSR instruction', () => {
+      it('pushes return address and jumps to subroutine', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program at $0000:
+        //   JSR $0010      ; Jump to subroutine at $0010
+        //   HLT            ; Never reached (subroutine halts first)
+        // Subroutine at $0010:
+        //   LDA #$42
+        //   HLT
+        const program: number[] = new Array(256).fill(0x00)
+        // Main at $0000
+        program[0x00] = 0x20  // JSR
+        program[0x01] = 0x10  // low byte of $0010
+        program[0x02] = 0x00  // high byte of $0010
+        program[0x03] = 0x02  // HLT (not reached)
+        // Subroutine at $0010
+        program[0x10] = 0xA9  // LDA #imm
+        program[0x11] = 0x42
+        program[0x12] = 0x02  // HLT
+
+        const final = runProgram(sim, program, 50)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x42)  // Subroutine executed
+        expect(final.pc).toBe(0x13)  // Halted after HLT at $0012
+        // SP should be $FD (two bytes pushed: return address high and low)
+        expect(final.sp).toBe(0xFD)
+      })
+
+      it('JSR pushes correct return address (PC after JSR instruction)', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Program: JSR $0020, then subroutine does PLA, TAX, PLA, TAY, HLT
+        // After JSR at $0000 (3 bytes), return address should be $0003
+        // Stack will have: [$01FF] = $00 (high), [$01FE] = $03 (low)
+        const program: number[] = new Array(256).fill(0x00)
+        // Main at $0000
+        program[0x00] = 0x20  // JSR
+        program[0x01] = 0x20  // low byte of $0020
+        program[0x02] = 0x00  // high byte of $0020
+        program[0x03] = 0x02  // HLT (not reached)
+        // Subroutine at $0020 - pull return address to check it
+        program[0x20] = 0x68  // PLA (pull low byte of return address)
+        program[0x21] = 0xAA  // TAX (X = low byte)
+        program[0x22] = 0x68  // PLA (pull high byte of return address)
+        program[0x23] = 0xA8  // TAY (Y = high byte)
+        program[0x24] = 0x02  // HLT
+
+        const final = runProgram(sim, program, 60)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x03)  // Return address low byte ($0003)
+        expect(final.y).toBe(0x00)  // Return address high byte ($0003)
+      })
+
+      it('nested JSR works with multiple stack levels', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Main: JSR sub1, HLT
+        // Sub1: LDA #$11, JSR sub2, HLT
+        // Sub2: LDX #$22, HLT
+        const program: number[] = new Array(256).fill(0x00)
+        // Main at $0000
+        program[0x00] = 0x20  // JSR
+        program[0x01] = 0x10  // $0010
+        program[0x02] = 0x00
+        program[0x03] = 0x02  // HLT
+        // Sub1 at $0010
+        program[0x10] = 0xA9  // LDA #$11
+        program[0x11] = 0x11
+        program[0x12] = 0x20  // JSR
+        program[0x13] = 0x20  // $0020
+        program[0x14] = 0x00
+        program[0x15] = 0x02  // HLT
+        // Sub2 at $0020
+        program[0x20] = 0xA2  // LDX #$22
+        program[0x21] = 0x22
+        program[0x22] = 0x02  // HLT
+
+        const final = runProgram(sim, program, 70)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x11)  // From sub1
+        expect(final.x).toBe(0x22)  // From sub2
+        // SP should be $FB (4 bytes pushed: 2 for each JSR)
+        expect(final.sp).toBe(0xFB)
+      })
+
+      it('JSR to different page works correctly', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Jump to page 2 ($02xx) - must be outside stack range ($0100-$01FF)
+        const program: number[] = new Array(768).fill(0x00)
+        // Main at $0000
+        program[0x00] = 0x20    // JSR
+        program[0x01] = 0x00    // low byte of $0200
+        program[0x02] = 0x02    // high byte of $0200
+        program[0x03] = 0x02    // HLT
+        // Subroutine at $0200
+        program[0x200] = 0xA9   // LDA #$77
+        program[0x201] = 0x77
+        program[0x202] = 0x02   // HLT
+
+        const final = runProgram(sim, program, 50)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x77)
+      })
+    })
+
+    // ==========================================
+    // RTS - Return from Subroutine (0x60)
+    // ==========================================
+    describe('RTS instruction', () => {
+      it('returns from subroutine to correct address', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Main: JSR sub, LDA #$99, HLT
+        // Sub: LDX #$33, RTS
+        const program: number[] = new Array(256).fill(0x00)
+        // Main at $0000
+        program[0x00] = 0x20  // JSR
+        program[0x01] = 0x10  // $0010
+        program[0x02] = 0x00
+        program[0x03] = 0xA9  // LDA #$99 (reached after RTS)
+        program[0x04] = 0x99
+        program[0x05] = 0x02  // HLT
+        // Sub at $0010
+        program[0x10] = 0xA2  // LDX #$33
+        program[0x11] = 0x33
+        program[0x12] = 0x60  // RTS
+
+        const final = runProgram(sim, program, 60)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(0x33)   // From subroutine
+        expect(final.a).toBe(0x99)   // Reached after return
+        expect(final.sp).toBe(0xFF)  // SP restored
+      })
+
+      it('nested JSR/RTS with return values', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Main: JSR sub1, HLT (A should be $22 from sub2)
+        // Sub1: LDA #$11, JSR sub2, RTS
+        // Sub2: LDA #$22, RTS
+        const program: number[] = new Array(256).fill(0x00)
+        // Main at $0000
+        program[0x00] = 0x20  // JSR
+        program[0x01] = 0x10  // $0010
+        program[0x02] = 0x00
+        program[0x03] = 0x02  // HLT
+        // Sub1 at $0010
+        program[0x10] = 0xA9  // LDA #$11
+        program[0x11] = 0x11
+        program[0x12] = 0x20  // JSR
+        program[0x13] = 0x20  // $0020
+        program[0x14] = 0x00
+        program[0x15] = 0x60  // RTS
+        // Sub2 at $0020
+        program[0x20] = 0xA9  // LDA #$22
+        program[0x21] = 0x22
+        program[0x22] = 0x60  // RTS
+
+        const final = runProgram(sim, program, 80)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x22)   // Final value from sub2
+        expect(final.sp).toBe(0xFF)  // All stack frames unwound
+      })
+
+      it('RTS restores SP correctly after multiple operations', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Main: PHA, JSR sub, PLA, HLT
+        // Sub: PHA, PLA, RTS
+        const program: number[] = new Array(256).fill(0x00)
+        // Main at $0000
+        program[0x00] = 0xA9  // LDA #$55
+        program[0x01] = 0x55
+        program[0x02] = 0x48  // PHA (push $55)
+        program[0x03] = 0x20  // JSR
+        program[0x04] = 0x10  // $0010
+        program[0x05] = 0x00
+        program[0x06] = 0x68  // PLA (should get $55 back)
+        program[0x07] = 0x02  // HLT
+        // Sub at $0010
+        program[0x10] = 0xA9  // LDA #$AA
+        program[0x11] = 0xAA
+        program[0x12] = 0x48  // PHA
+        program[0x13] = 0x68  // PLA
+        program[0x14] = 0x60  // RTS
+
+        const final = runProgram(sim, program, 150)
+
+        expect(final.halted).toBe(true)
+        expect(final.a).toBe(0x55)   // Original value restored after PLA
+        expect(final.sp).toBe(0xFF)  // SP fully restored
+      })
+
+      it('subroutine modifies X and returns', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Simple increment subroutine
+        // Main: LDX #$00, JSR inc_x, JSR inc_x, JSR inc_x, HLT
+        // inc_x: INX, RTS
+        const program: number[] = new Array(256).fill(0x00)
+        // Main at $0000
+        program[0x00] = 0xA2  // LDX #$00
+        program[0x01] = 0x00
+        program[0x02] = 0x20  // JSR
+        program[0x03] = 0x20  // $0020
+        program[0x04] = 0x00
+        program[0x05] = 0x20  // JSR (second call)
+        program[0x06] = 0x20
+        program[0x07] = 0x00
+        program[0x08] = 0x20  // JSR (third call)
+        program[0x09] = 0x20
+        program[0x0A] = 0x00
+        program[0x0B] = 0x02  // HLT
+        // inc_x subroutine at $0020
+        program[0x20] = 0xE8  // INX
+        program[0x21] = 0x60  // RTS
+
+        const final = runProgram(sim, program, 200)
+
+        expect(final.halted).toBe(true)
+        expect(final.x).toBe(3)      // X incremented 3 times
+        expect(final.sp).toBe(0xFF)  // SP restored after 3 calls/returns
+      })
+
+      it('deeply nested subroutines (3 levels)', () => {
+        const result = createSimulator(testModule, 'test_cpu')
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+
+        const sim = result.simulator
+        // Main calls sub1, sub1 calls sub2, sub2 calls sub3
+        // Each adds to Y, then returns
+        const program: number[] = new Array(256).fill(0x00)
+        // Main at $0000
+        program[0x00] = 0xA0  // LDY #$00
+        program[0x01] = 0x00
+        program[0x02] = 0x20  // JSR
+        program[0x03] = 0x10  // $0010
+        program[0x04] = 0x00
+        program[0x05] = 0x02  // HLT
+        // sub1 at $0010: INY, JSR sub2, INY, RTS
+        program[0x10] = 0xC8  // INY (Y=1)
+        program[0x11] = 0x20  // JSR
+        program[0x12] = 0x20  // $0020
+        program[0x13] = 0x00
+        program[0x14] = 0xC8  // INY (Y=4)
+        program[0x15] = 0x60  // RTS
+        // sub2 at $0020: INY, JSR sub3, INY, RTS
+        program[0x20] = 0xC8  // INY (Y=2)
+        program[0x21] = 0x20  // JSR
+        program[0x22] = 0x30  // $0030
+        program[0x23] = 0x00
+        program[0x24] = 0xC8  // INY (Y=3 after return from sub3)
+        program[0x25] = 0x60  // RTS
+        // sub3 at $0030: RTS immediately (leaf)
+        program[0x30] = 0x60  // RTS
+
+        const final = runProgram(sim, program, 200)
+
+        expect(final.halted).toBe(true)
+        expect(final.y).toBe(4)      // Y incremented 4 times total
+        expect(final.sp).toBe(0xFF)  // SP fully restored
+      })
+    })
+  })
+})
+
+// Address Decoder tests
+const addrDecodeWire = readFileSync(resolve(__dirname, '../assets/wire/addr_decode.wire'), 'utf-8')
+
+describe('Address Decoder', () => {
+  const testModule = `
+${gatesWire}
+${addrDecodeWire}
+
+module test_addr_decode(addr:16) -> (sel_zp, sel_stack, sel_ram, sel_io, sel_rom):
+  result = addr_decode(addr)
+  sel_zp = result.sel_zp
+  sel_stack = result.sel_stack
+  sel_ram = result.sel_ram
+  sel_io = result.sel_io
+  sel_rom = result.sel_rom
+`
+
+  it('selects zero page for $0000-$00FF', () => {
+    const result = createSimulator(testModule, 'test_addr_decode')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const sim = result.simulator
+
+    // Test various zero page addresses
+    for (const addr of [0x0000, 0x0001, 0x007F, 0x00FF]) {
+      sim.setInput('addr', addr)
+      sim.step()
+      expect(sim.getOutput('sel_zp')).toBe(1)
+      expect(sim.getOutput('sel_stack')).toBe(0)
+      expect(sim.getOutput('sel_ram')).toBe(0)
+      expect(sim.getOutput('sel_io')).toBe(0)
+      expect(sim.getOutput('sel_rom')).toBe(0)
+    }
+  })
+
+  it('selects stack for $0100-$01FF', () => {
+    const result = createSimulator(testModule, 'test_addr_decode')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const sim = result.simulator
+
+    // Test various stack addresses
+    for (const addr of [0x0100, 0x0101, 0x017F, 0x01FF]) {
+      sim.setInput('addr', addr)
+      sim.step()
+      expect(sim.getOutput('sel_zp')).toBe(0)
+      expect(sim.getOutput('sel_stack')).toBe(1)
+      expect(sim.getOutput('sel_ram')).toBe(0)
+      expect(sim.getOutput('sel_io')).toBe(0)
+      expect(sim.getOutput('sel_rom')).toBe(0)
+    }
+  })
+
+  it('selects general RAM for $0200-$3FFF', () => {
+    const result = createSimulator(testModule, 'test_addr_decode')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const sim = result.simulator
+
+    // Test various RAM addresses
+    for (const addr of [0x0200, 0x0300, 0x1000, 0x2000, 0x3FFF]) {
+      sim.setInput('addr', addr)
+      sim.step()
+      expect(sim.getOutput('sel_zp')).toBe(0)
+      expect(sim.getOutput('sel_stack')).toBe(0)
+      expect(sim.getOutput('sel_ram')).toBe(1)
+      expect(sim.getOutput('sel_io')).toBe(0)
+      expect(sim.getOutput('sel_rom')).toBe(0)
+    }
+  })
+
+  it('selects I/O for $8000-$80FF', () => {
+    const result = createSimulator(testModule, 'test_addr_decode')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const sim = result.simulator
+
+    // Test I/O addresses
+    for (const addr of [0x8000, 0x8001, 0x800F, 0x80FF]) {
+      sim.setInput('addr', addr)
+      sim.step()
+      expect(sim.getOutput('sel_zp')).toBe(0)
+      expect(sim.getOutput('sel_stack')).toBe(0)
+      expect(sim.getOutput('sel_ram')).toBe(0)
+      expect(sim.getOutput('sel_io')).toBe(1)
+      expect(sim.getOutput('sel_rom')).toBe(0)
+    }
+  })
+
+  it('selects ROM for $C000-$FFFF', () => {
+    const result = createSimulator(testModule, 'test_addr_decode')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const sim = result.simulator
+
+    // Test ROM addresses
+    for (const addr of [0xC000, 0xD000, 0xE000, 0xF000, 0xFFFC, 0xFFFE, 0xFFFF]) {
+      sim.setInput('addr', addr)
+      sim.step()
+      expect(sim.getOutput('sel_zp')).toBe(0)
+      expect(sim.getOutput('sel_stack')).toBe(0)
+      expect(sim.getOutput('sel_ram')).toBe(0)
+      expect(sim.getOutput('sel_io')).toBe(0)
+      expect(sim.getOutput('sel_rom')).toBe(1)
+    }
+  })
+
+  it('selects nothing for reserved region $4000-$7FFF', () => {
+    const result = createSimulator(testModule, 'test_addr_decode')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const sim = result.simulator
+
+    // Test reserved region - should select nothing
+    for (const addr of [0x4000, 0x5000, 0x6000, 0x7FFF]) {
+      sim.setInput('addr', addr)
+      sim.step()
+      expect(sim.getOutput('sel_zp')).toBe(0)
+      expect(sim.getOutput('sel_stack')).toBe(0)
+      expect(sim.getOutput('sel_ram')).toBe(0)
+      expect(sim.getOutput('sel_io')).toBe(0)
+      expect(sim.getOutput('sel_rom')).toBe(0)
+    }
+  })
+
+  it('selects nothing for non-I/O in $8100-$BFFF', () => {
+    const result = createSimulator(testModule, 'test_addr_decode')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const sim = result.simulator
+
+    // Test addresses after I/O but before ROM - should select nothing
+    for (const addr of [0x8100, 0x9000, 0xA000, 0xBFFF]) {
+      sim.setInput('addr', addr)
+      sim.step()
+      expect(sim.getOutput('sel_zp')).toBe(0)
+      expect(sim.getOutput('sel_stack')).toBe(0)
+      expect(sim.getOutput('sel_ram')).toBe(0)
+      expect(sim.getOutput('sel_io')).toBe(0)
+      expect(sim.getOutput('sel_rom')).toBe(0)
+    }
+  })
+})
+
+// I/O Controller tests
+const ioCtrlWire = readFileSync(resolve(__dirname, '../assets/wire/io_ctrl.wire'), 'utf-8')
+
+describe('I/O Controller', () => {
+  const testModule = `
+${gatesWire}
+${registersWire}
+${mux8Wire}
+${ioCtrlWire}
+`
+
+  function createIO() {
+    const result = createSimulator(testModule, 'io_ctrl')
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    return result.simulator
+  }
+
+  function clockCycle(sim: any) {
+    sim.setInput('clk', 0)
+    sim.step()
+    sim.setInput('clk', 1)
+    sim.step()
+  }
+
+  it('initial status is 0 (no RX ready, no TX busy)', () => {
+    const sim = createIO()
+    sim.setInput('addr', 0)  // Status register
+    sim.setInput('read_en', 1)
+    sim.setInput('write_en', 0)
+    sim.setInput('rx_valid', 0)
+    sim.setInput('rx_byte', 0)
+    sim.setInput('tx_ack', 0)
+    sim.setInput('data_in', 0)
+    sim.step()
+    expect(sim.getOutput('data_out')).toBe(0)  // No RX ready, no TX busy
+  })
+
+  it('TX: writing to data register sets tx_byte and tx_valid', () => {
+    const sim = createIO()
+    sim.setInput('addr', 1)  // Data register
+    sim.setInput('write_en', 1)
+    sim.setInput('read_en', 0)
+    sim.setInput('data_in', 0x41)  // 'A'
+    sim.setInput('rx_valid', 0)
+    sim.setInput('rx_byte', 0)
+    sim.setInput('tx_ack', 0)
+
+    // Clock: data latched, tx_valid goes high (registered write signal)
+    clockCycle(sim)
+
+    expect(sim.getOutput('tx_byte')).toBe(0x41)
+    expect(sim.getOutput('tx_valid')).toBe(1)  // tx_valid = registered write_data_reg
+  })
+
+  it('TX: tx_valid goes low when write_en goes low', () => {
+    const sim = createIO()
+    sim.setInput('addr', 1)
+    sim.setInput('write_en', 1)
+    sim.setInput('read_en', 0)
+    sim.setInput('data_in', 0x42)
+    sim.setInput('rx_valid', 0)
+    sim.setInput('rx_byte', 0)
+    sim.setInput('tx_ack', 0)
+
+    clockCycle(sim)
+    expect(sim.getOutput('tx_valid')).toBe(1)
+
+    // Lower write_en - tx_valid goes low on next clock
+    sim.setInput('write_en', 0)
+    clockCycle(sim)
+    expect(sim.getOutput('tx_valid')).toBe(0)
+  })
+
+  it('TX: status shows TX busy after write', () => {
+    const sim = createIO()
+
+    // Write byte
+    sim.setInput('addr', 1)
+    sim.setInput('write_en', 1)
+    sim.setInput('read_en', 0)
+    sim.setInput('data_in', 0x43)
+    sim.setInput('rx_valid', 0)
+    sim.setInput('rx_byte', 0)
+    sim.setInput('tx_ack', 0)
+    clockCycle(sim)
+
+    // Read status
+    sim.setInput('addr', 0)
+    sim.setInput('write_en', 0)
+    sim.setInput('read_en', 1)
+    sim.step()
+
+    expect(sim.getOutput('data_out') & 0x02).toBe(0x02)  // TX busy bit set
+  })
+
+  it('TX: tx_ack clears TX busy', () => {
+    const sim = createIO()
+
+    // Write byte
+    sim.setInput('addr', 1)
+    sim.setInput('write_en', 1)
+    sim.setInput('read_en', 0)
+    sim.setInput('data_in', 0x44)
+    sim.setInput('rx_valid', 0)
+    sim.setInput('rx_byte', 0)
+    sim.setInput('tx_ack', 0)
+    clockCycle(sim)
+
+    // Acknowledge TX
+    sim.setInput('write_en', 0)
+    sim.setInput('tx_ack', 1)
+    clockCycle(sim)
+
+    // Read status
+    sim.setInput('addr', 0)
+    sim.setInput('read_en', 1)
+    sim.setInput('tx_ack', 0)
+    sim.step()
+
+    expect(sim.getOutput('data_out') & 0x02).toBe(0)  // TX busy cleared
+  })
+
+  it('RX: receiving byte sets RX ready', () => {
+    const sim = createIO()
+
+    // Receive byte
+    sim.setInput('addr', 0)
+    sim.setInput('write_en', 0)
+    sim.setInput('read_en', 0)
+    sim.setInput('data_in', 0)
+    sim.setInput('rx_byte', 0x48)  // 'H'
+    sim.setInput('rx_valid', 1)
+    sim.setInput('tx_ack', 0)
+    clockCycle(sim)
+
+    // Read status
+    sim.setInput('rx_valid', 0)
+    sim.setInput('read_en', 1)
+    sim.step()
+
+    expect(sim.getOutput('data_out') & 0x01).toBe(0x01)  // RX ready bit set
+  })
+
+  it('RX: reading data register returns received byte', () => {
+    const sim = createIO()
+
+    // Receive byte
+    sim.setInput('addr', 0)
+    sim.setInput('write_en', 0)
+    sim.setInput('read_en', 0)
+    sim.setInput('data_in', 0)
+    sim.setInput('rx_byte', 0x65)  // 'e'
+    sim.setInput('rx_valid', 1)
+    sim.setInput('tx_ack', 0)
+    clockCycle(sim)
+
+    // Read data
+    sim.setInput('addr', 1)
+    sim.setInput('rx_valid', 0)
+    sim.setInput('read_en', 1)
+    sim.step()
+
+    expect(sim.getOutput('data_out')).toBe(0x65)
+  })
+
+  it('RX: reading data clears RX ready', () => {
+    const sim = createIO()
+
+    // Receive byte
+    sim.setInput('addr', 0)
+    sim.setInput('write_en', 0)
+    sim.setInput('read_en', 0)
+    sim.setInput('rx_byte', 0x6C)
+    sim.setInput('rx_valid', 1)
+    sim.setInput('tx_ack', 0)
+    clockCycle(sim)
+
+    // Read data (clears ready)
+    sim.setInput('addr', 1)
+    sim.setInput('rx_valid', 0)
+    sim.setInput('read_en', 1)
+    clockCycle(sim)
+
+    // Read status
+    sim.setInput('addr', 0)
+    sim.step()
+
+    expect(sim.getOutput('data_out') & 0x01).toBe(0)  // RX ready cleared
+  })
+
+  it('LED: writing to LED register controls LED output', () => {
+    const sim = createIO()
+
+    sim.setInput('addr', 2)  // LED register
+    sim.setInput('write_en', 1)
+    sim.setInput('read_en', 0)
+    sim.setInput('data_in', 1)  // LED on
+    sim.setInput('rx_valid', 0)
+    sim.setInput('rx_byte', 0)
+    sim.setInput('tx_ack', 0)
+    clockCycle(sim)
+
+    expect(sim.getOutput('led_out')).toBe(1)
+
+    // Turn off
+    sim.setInput('data_in', 0)
+    clockCycle(sim)
+
+    expect(sim.getOutput('led_out')).toBe(0)
+  })
+
+  it('multiple TX bytes in sequence', () => {
+    const sim = createIO()
+    const message = [0x48, 0x69]  // "Hi"
+
+    sim.setInput('rx_valid', 0)
+    sim.setInput('rx_byte', 0)
+
+    for (const byte of message) {
+      // Write byte
+      sim.setInput('addr', 1)
+      sim.setInput('write_en', 1)
+      sim.setInput('read_en', 0)
+      sim.setInput('data_in', byte)
+      sim.setInput('tx_ack', 0)
+      clockCycle(sim)
+
+      expect(sim.getOutput('tx_byte')).toBe(byte)
+
+      // Acknowledge
+      sim.setInput('write_en', 0)
+      sim.setInput('tx_ack', 1)
+      clockCycle(sim)
+      sim.setInput('tx_ack', 0)
+    }
+  })
+})
+
+// System Module tests
+const systemWire = readFileSync(resolve(__dirname, '../assets/wire/system.wire'), 'utf-8')
+
+describe('System Module', () => {
+  const testModule = `
+${gatesWire}
+${arithmeticWire}
+${registersWire}
+${register16Wire}
+${adder16Wire}
+${mux8Wire}
+${mux16Wire}
+${inc16Wire}
+${alu8Wire}
+${mux4way8Wire}
+${mux8way8Wire}
+${decoderWire}
+${pcWire}
+${cpuMinimalWire}
+${addrDecodeWire}
+${systemWire}
+
+module test_system(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, sel_zp, sel_stack, sel_ram, sel_io, sel_rom, a_out:8, x_out:8, y_out:8, sp_out:8, flags_out:4, pc_out:16, state_out:5):
+  sys = system(clk, reset, data_in)
+  addr = sys.addr
+  data_out = sys.data_out
+  mem_write = sys.mem_write
+  halted = sys.halted
+  sel_zp = sys.sel_zp
+  sel_stack = sys.sel_stack
+  sel_ram = sys.sel_ram
+  sel_io = sys.sel_io
+  sel_rom = sys.sel_rom
+  a_out = sys.a_out
+  x_out = sys.x_out
+  y_out = sys.y_out
+  sp_out = sys.sp_out
+  flags_out = sys.flags_out
+  pc_out = sys.pc_out
+  state_out = sys.state_out
+`
+
+  it('compiles successfully', () => {
+    const result = createSimulator(testModule, 'test_system')
+    expect(result.ok).toBe(true)
+  })
+
+  it('starts in reset state 20 and reads reset vector from ROM', () => {
+    const result = createSimulator(testModule, 'test_system')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const sim = result.simulator
+    sim.setInput('reset', 1)
+    sim.setInput('data_in', 0)
+    sim.setInput('clk', 0)
+    sim.step()
+    sim.setInput('clk', 1)
+    sim.step()
+
+    // After reset, CPU goes to state 20 (RESET_LO) to read reset vector from $FFFC
+    expect(sim.getOutput('state_out')).toBe(20)
+    expect(sim.getOutput('addr')).toBe(0xFFFC)  // Reset vector low byte address
+    expect(sim.getOutput('sel_rom')).toBe(1)  // $FFFC is in ROM space
+    expect(sim.getOutput('halted')).toBe(0)
+  })
+
+  it('selects ROM when fetching from $C000+', () => {
+    const result = createSimulator(testModule, 'test_system')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const sim = result.simulator
+
+    // Program in zero page: JMP $C000
+    // ROM at $C000: LDA #$42, HLT
+    const ram = [0x4C, 0x00, 0xC0]  // JMP $C000
+    const rom = [0xA9, 0x42, 0x02]  // LDA #$42, HLT at $C000
+
+    const final = runSystemProgram(sim, rom, ram, 30)
+
+    expect(final.halted).toBe(true)
+    expect(final.a).toBe(0x42)  // Executed ROM code
+    expect(final.pc).toBe(0xC003)  // Stopped in ROM
+  })
+
+  it('selects stack when PHA pushes to $01xx', () => {
+    const result = createSimulator(testModule, 'test_system')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const sim = result.simulator
+
+    // Program: LDA #$42, PHA, HLT
+    const ram = [0xA9, 0x42, 0x48, 0x02]
+
+    const final = runSystemProgram(sim, [], ram, 30)
+
+    expect(final.halted).toBe(true)
+    expect(final.a).toBe(0x42)
+    expect(final.sp).toBe(0xFE)  // Pushed once, SP went from $FF to $FE
+    expect(final.stack[0xFF]).toBe(0x42)  // Value pushed to stack
+  })
+
+  // Helper function for running programs with ROM/RAM memory model
+  function runSystemProgram(sim: any, rom: number[], ram: number[] = [], maxCycles: number = 100) {
+    const clockCycle = () => {
+      sim.setInput('clk', 0)
+      sim.step()
+      sim.setInput('clk', 1)
+      sim.step()
+    }
+
+    // Reset - goes to state 20 (RESET_LO)
+    sim.setInput('reset', 1)
+    sim.setInput('data_in', 0)
+    clockCycle()
+    sim.setInput('reset', 0)
+
+    // Complete reset vector read (states 20 -> 21 -> 0)
+    // State 20: addr=$FFFC, read low byte of reset vector from ROM
+    // ROM offset = $FFFC - $C000 = $3FFC
+    const resetVecLo = rom[0x3FFC] ?? 0x00
+    sim.setInput('data_in', resetVecLo)
+    clockCycle()  // State 20 -> 21
+    // State 21: addr=$FFFD, read high byte of reset vector and load PC
+    const resetVecHi = rom[0x3FFD] ?? 0x00
+    sim.setInput('data_in', resetVecHi)
+    clockCycle()  // State 21 -> 0, PC loaded with reset vector
+
+    let cycles = 0
+    const stackMem = new Array(256).fill(0)
+    const ramMem = [...ram]  // Copy initial RAM
+
+    while (cycles < maxCycles && sim.getOutput('halted') === 0) {
+      const addr = sim.getOutput('addr')
+
+      // Provide data based on address
+      let data = 0
+      if (sim.getOutput('sel_rom') === 1) {
+        // ROM at $C000-$FFFF
+        const romAddr = addr - 0xC000
+        data = rom[romAddr] ?? 0
+      } else if (sim.getOutput('sel_stack') === 1) {
+        // Stack at $0100-$01FF
+        data = stackMem[addr - 0x0100]
+      } else if (sim.getOutput('sel_zp') === 1 || sim.getOutput('sel_ram') === 1) {
+        // RAM at $0000-$3FFF
+        data = ramMem[addr] ?? 0
+      }
+      sim.setInput('data_in', data)
+
+      // Capture write before clock
+      const memWrite = sim.getOutput('mem_write') === 1
+      const writeAddr = sim.getOutput('addr')
+      const writeValue = sim.getOutput('data_out')
+
+      clockCycle()
+
+      // Commit write
+      if (memWrite) {
+        if (writeAddr >= 0x0100 && writeAddr <= 0x01FF) {
+          stackMem[writeAddr - 0x0100] = writeValue
+        } else if (writeAddr < 0x4000) {
+          ramMem[writeAddr] = writeValue
+        }
+      }
+
+      cycles++
+    }
+
+    return {
+      cycles,
+      halted: sim.getOutput('halted') === 1,
+      a: sim.getOutput('a_out'),
+      x: sim.getOutput('x_out'),
+      y: sim.getOutput('y_out'),
+      sp: sim.getOutput('sp_out'),
+      pc: sim.getOutput('pc_out'),
+      ram: ramMem,
+      stack: stackMem
+    }
+  }
+
+  it('executes program from zero page (temporary, PC starts at 0)', () => {
+    const result = createSimulator(testModule, 'test_system')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const sim = result.simulator
+
+    // Simple program at address 0: LDA #$42, HLT
+    // Since PC starts at 0, this tests zero page program execution
+    const program = [
+      0xA9, 0x42,  // LDA #$42
+      0x02         // HLT
+    ]
+
+    // Put program in RAM (at zero page for now)
+    const final = runSystemProgram(sim, [], program, 20)
+
+    expect(final.halted).toBe(true)
+    expect(final.a).toBe(0x42)
+  })
+})
+
+// Boot sequence tests - CPU executes from ROM with I/O controller
+describe('Boot Sequence', () => {
+  // Load I/O controller
+  const ioCtrlWire = readFileSync(resolve(__dirname, '../assets/wire/io_ctrl.wire'), 'utf-8')
+  const addrDecodeWire = readFileSync(resolve(__dirname, '../assets/wire/addr_decode.wire'), 'utf-8')
+
+  // Full CPU + decoder + I/O modules
+  const cpuWithIO = gatesWire + '\n' + arithmeticWire + '\n' + registersWire + '\n' +
+    register16Wire + '\n' + adder16Wire + '\n' + mux8Wire + '\n' + mux16Wire + '\n' +
+    inc16Wire + '\n' + alu8Wire + '\n' + mux4way8Wire + '\n' + mux8way8Wire + '\n' +
+    decoderWire + '\n' + cpuMinimalWire + '\n' + addrDecodeWire + '\n' + ioCtrlWire
+
+  // Boot program: LDA #$01, STA $8002 (LED on), LDA #'O', STA $8001, LDA #'K', STA $8001, LDA #$0A, STA $8001, LDA #$00, STA $8002 (LED off), HLT
+  // This matches boot_minimal.pulse but without JSR/RTS for simpler testing
+  const bootRomSimple = new Array(0x4000).fill(0)  // 16KB ROM
+  // Code at $C000 (ROM offset 0)
+  let offset = 0
+  bootRomSimple[offset++] = 0xA9  // LDA #$01
+  bootRomSimple[offset++] = 0x01
+  bootRomSimple[offset++] = 0x8D  // STA $8002
+  bootRomSimple[offset++] = 0x02
+  bootRomSimple[offset++] = 0x80
+  bootRomSimple[offset++] = 0xA9  // LDA #'O' ($4F)
+  bootRomSimple[offset++] = 0x4F
+  bootRomSimple[offset++] = 0x8D  // STA $8001
+  bootRomSimple[offset++] = 0x01
+  bootRomSimple[offset++] = 0x80
+  bootRomSimple[offset++] = 0xA9  // LDA #'K' ($4B)
+  bootRomSimple[offset++] = 0x4B
+  bootRomSimple[offset++] = 0x8D  // STA $8001
+  bootRomSimple[offset++] = 0x01
+  bootRomSimple[offset++] = 0x80
+  bootRomSimple[offset++] = 0xA9  // LDA #$0A (newline)
+  bootRomSimple[offset++] = 0x0A
+  bootRomSimple[offset++] = 0x8D  // STA $8001
+  bootRomSimple[offset++] = 0x01
+  bootRomSimple[offset++] = 0x80
+  bootRomSimple[offset++] = 0xA9  // LDA #$00
+  bootRomSimple[offset++] = 0x00
+  bootRomSimple[offset++] = 0x8D  // STA $8002
+  bootRomSimple[offset++] = 0x02
+  bootRomSimple[offset++] = 0x80
+  bootRomSimple[offset++] = 0x02  // HLT
+  // Reset vector at $FFFC (ROM offset $3FFC)
+  bootRomSimple[0x3FFC] = 0x00  // Low byte of $C000
+  bootRomSimple[0x3FFD] = 0xC0  // High byte of $C000
+
+  // Test module: CPU + address decoder + I/O controller
+  const bootTestModule = `
+${cpuWithIO}
+
+module boot_test(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, halted, led_out, tx_byte:8, tx_valid, a_out:8, pc_out:16, state_out:5, sel_io, sel_rom, sel_ram):
+  cpu = cpu_minimal(clk, reset, data_in)
+  dec = addr_decode(cpu.addr)
+
+  ; I/O controller sees only low 4 bits of address when I/O selected
+  io = io_ctrl(clk, reset, cpu.addr[0:3], cpu.data_out, and(cpu.mem_write, dec.sel_io), and(not(cpu.mem_write), dec.sel_io), 0, 0, 0)
+
+  addr = cpu.addr
+  data_out = cpu.data_out
+  mem_write = cpu.mem_write
+  halted = cpu.halted
+  led_out = io.led_out
+  tx_byte = io.tx_byte
+  tx_valid = io.tx_valid
+  a_out = cpu.a_out
+  pc_out = cpu.pc_out
+  state_out = cpu.state_out
+  sel_io = dec.sel_io
+  sel_rom = dec.sel_rom
+  sel_ram = dec.sel_ram
+`
+
+  function runBoot(maxCycles: number = 200) {
+    const result = createSimulator(bootTestModule, 'boot_test')
+    if (!result.ok) throw new Error('Failed to create simulator: ' + result.error)
+    const sim = result.simulator
+
+    const clockCycle = () => {
+      sim.setInput('clk', 0)
+      sim.step()
+      sim.setInput('clk', 1)
+      sim.step()
+    }
+
+    // Reset
+    sim.setInput('reset', 1)
+    sim.setInput('data_in', 0)
+    clockCycle()
+    sim.setInput('reset', 0)
+
+    // Complete reset vector read
+    sim.setInput('data_in', bootRomSimple[0x3FFC])  // $00
+    clockCycle()
+    sim.setInput('data_in', bootRomSimple[0x3FFD])  // $C0
+    clockCycle()
+
+    const output: number[] = []
+    const stackMem = new Array(256).fill(0)
+    let ledState = 0
+
+    for (let cycle = 0; cycle < maxCycles && sim.getOutput('halted') === 0; cycle++) {
+      const addr = sim.getOutput('addr')
+      const selRom = sim.getOutput('sel_rom')
+      const selIo = sim.getOutput('sel_io')
+
+      // Provide data based on address
+      let data = 0
+      if (selRom === 1) {
+        data = bootRomSimple[addr - 0xC000] ?? 0
+      } else if (addr >= 0x0100 && addr <= 0x01FF) {
+        data = stackMem[addr - 0x0100]
+      }
+      sim.setInput('data_in', data)
+
+      // Check tx_valid before clock
+      const txValidBefore = sim.getOutput('tx_valid')
+
+      clockCycle()
+
+      // Capture TX output after clock
+      if (sim.getOutput('tx_valid') === 1) {
+        output.push(sim.getOutput('tx_byte'))
+      }
+
+      // Track LED state
+      ledState = sim.getOutput('led_out')
+
+      // Handle stack writes
+      const memWrite = sim.getOutput('mem_write')
+      if (memWrite === 1) {
+        const writeAddr = addr
+        if (writeAddr >= 0x0100 && writeAddr <= 0x01FF) {
+          stackMem[writeAddr - 0x0100] = sim.getOutput('data_out')
+        }
+      }
+    }
+
+    return {
+      halted: sim.getOutput('halted') === 1,
+      output,
+      outputStr: String.fromCharCode(...output),
+      ledState,
+      a: sim.getOutput('a_out'),
+      pc: sim.getOutput('pc_out'),
+    }
+  }
+
+  it('compiles boot test module', () => {
+    const result = createSimulator(bootTestModule, 'boot_test')
+    expect(result.ok).toBe(true)
+  })
+
+  it('CPU boots from reset vector at $C000', () => {
+    const result = createSimulator(bootTestModule, 'boot_test')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const sim = result.simulator
+
+    const clockCycle = () => {
+      sim.setInput('clk', 0)
+      sim.step()
+      sim.setInput('clk', 1)
+      sim.step()
+    }
+
+    // Reset
+    sim.setInput('reset', 1)
+    sim.setInput('data_in', 0)
+    clockCycle()
+    sim.setInput('reset', 0)
+
+    // State 20: read reset vector low byte from $FFFC
+    expect(sim.getOutput('addr')).toBe(0xFFFC)
+    sim.setInput('data_in', 0x00)  // Low byte = $00
+    clockCycle()
+
+    // State 21: read reset vector high byte from $FFFD
+    expect(sim.getOutput('addr')).toBe(0xFFFD)
+    sim.setInput('data_in', 0xC0)  // High byte = $C0
+    clockCycle()
+
+    // State 0: PC should now be $C000
+    expect(sim.getOutput('pc_out')).toBe(0xC000)
+  })
+
+  it('executes boot program and outputs "OK\\n"', () => {
+    const final = runBoot(300)
+
+    expect(final.halted).toBe(true)
+    expect(final.outputStr).toBe('OK\n')
+    expect(final.a).toBe(0x00)  // Last LDA #$00
+    expect(final.ledState).toBe(0)  // LED turned off at end
+  })
+
+  it('turns LED on then off during boot', () => {
+    const result = createSimulator(bootTestModule, 'boot_test')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const sim = result.simulator
+
+    const clockCycle = () => {
+      sim.setInput('clk', 0)
+      sim.step()
+      sim.setInput('clk', 1)
+      sim.step()
+    }
+
+    // Reset
+    sim.setInput('reset', 1)
+    sim.setInput('data_in', 0)
+    clockCycle()
+    sim.setInput('reset', 0)
+
+    // Reset vector read
+    sim.setInput('data_in', 0x00)
+    clockCycle()
+    sim.setInput('data_in', 0xC0)
+    clockCycle()
+
+    // Track LED state changes
+    const ledStates: number[] = [sim.getOutput('led_out')]
+    let prevLed = ledStates[0]
+
+    for (let i = 0; i < 50; i++) {
+      const addr = sim.getOutput('addr')
+      const selRom = sim.getOutput('sel_rom')
+      let data = 0
+      if (selRom === 1) {
+        data = bootRomSimple[addr - 0xC000] ?? 0
+      }
+      sim.setInput('data_in', data)
+      clockCycle()
+
+      const led = sim.getOutput('led_out')
+      if (led !== prevLed) {
+        ledStates.push(led)
+        prevLed = led
+      }
+    }
+
+    // LED should go: 0 -> 1 -> 0
+    expect(ledStates).toContain(0)
+    expect(ledStates).toContain(1)
+    // Final state should be 0
+    expect(sim.getOutput('led_out')).toBe(0)
   })
 })

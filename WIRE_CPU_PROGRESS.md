@@ -130,62 +130,92 @@
 - [x] TXA (4 tests)
 - [x] TYA (4 tests)
 
-### 4.3: Stack Operations (Day 9)
-- [ ] Stack pointer register
-- [ ] PHA, PLA
-- [ ] JSR, RTS
+### 4.3: Stack Operations ✅
+- [x] Stack pointer register (SP, 8-bit, initialized to $FF)
+- [x] PHA - Push A to stack (10 tests)
+- [x] PLA - Pull A from stack
+- [x] JSR - Jump to subroutine (pushes return address)
+- [x] RTS - Return from subroutine (pops return address)
 
 **Phase 4 Complete When:**
-- [ ] 25+ instructions implemented
-- [ ] ~180-200 tests passing
-- [ ] Full instruction set working
+- [x] 28 instructions implemented (LDA, LDX, LDY, ADC, SBC, CMP, AND, ORA, EOR, STA, STX, STY, JMP, JSR, RTS, BEQ, BNE, INX, DEX, INY, DEY, TAX, TAY, TXA, TYA, PHA, PLA, HLT)
+- [x] 310+ CPU component tests passing
+- [x] JSR/RTS for subroutine calls
 
 ---
 
-## Phase 5: Memory Interface & Integration (Days 10-11)
+## Phase 5: ROM-Based System Architecture (Days 10-11)
 
-### 5.1: RAM Module
-- [ ] `ram.wire` - 64KB RAM
-- [ ] Write/read cycle tests
-- [ ] Address decoding tests
+Uses external ROM for firmware instead of implementing routines in Wire HDL.
+See `spec/system-architecture.md` for full details.
 
-### 5.2: Reset Vector
-- [ ] Implement proper 6502-style reset vector at $FFFC/$FFFD
-- [ ] CPU reads reset vector on startup
-- [ ] (Currently using PC=0 for simplicity in Phase 2)
+### Memory Map
+```
+$0000-$00FF  Zero Page RAM (256 bytes) - fast access
+$0100-$01FF  Stack RAM (256 bytes) - hardware stack
+$0200-$3FFF  General RAM (~16KB)
+$4000-$7FFF  [Reserved/Expansion]
+$8000-$800F  I/O Registers (memory-mapped)
+$C000-$FFFF  ROM (16KB) - firmware/BIOS
+```
 
-### 5.3: Full System Integration
-- [ ] `system.wire` - CPU + RAM + I/O
-- [ ] Run Pulse test programs
-- [ ] Compare to TypeScript CPU
-- [ ] Verify all 183 existing tests pass
+### 5.1: Address Decoder ✅
+- [x] `addr_decode.wire` - Decodes address to select memory region
+- [x] sel_zp ($00xx), sel_stack ($01xx), sel_ram ($02xx-$3Fxx)
+- [x] sel_io ($80xx), sel_rom ($C0xx-$FFxx)
+- [x] Write tests for all memory regions (7 tests)
+
+### 5.2: System Module ✅
+- [x] `system.wire` - Top-level connecting CPU + ROM + RAM + I/O
+- [x] Memory handled externally (test harness provides ROM/RAM)
+- [x] Address decoder integrated for chip select signals
+- [x] 5 system integration tests passing
+
+### 5.3: Reset Vector ✅
+- [x] ROM contains reset vector at $FFFC/$FFFD → $C000
+- [x] CPU reads reset vector on startup (states 20→21→22→0)
+- [x] Boot code starts executing from ROM
+- [x] 23-state machine with 3-state reset sequence to avoid DFF race condition
+
+### 5.4: Basic Boot Test ✅
+- [x] ROM program execution (JMP $C000, execute in ROM)
+- [x] RAM program execution (LDA, PHA, HLT)
+- [x] CPU fetches from correct memory regions
+- [x] Stack operations write to $01xx
 
 **Phase 5 Complete When:**
-- [ ] Full system runs Pulse programs
-- [ ] All existing tests migrated
-- [ ] Output matches TypeScript CPU
+- [x] CPU boots from ROM reset vector
+- [x] ROM code can read/write RAM
+- [x] Address decoder correctly routes all regions
 
 ---
 
 ## Phase 6: Boot Sequence & Shell (Days 12-13)
 
-### 6.1: Load Boot Program
-- [ ] Assemble boot.pulse
-- [ ] Load into RAM at correct address
-- [ ] Set reset vector
-- [ ] Test boot sequence
+### 6.1: I/O Controller ✅
+- [x] `io_ctrl.wire` - Memory-mapped I/O at $8000-$800F
+  - [x] $8000 SERIAL_STATUS (R) - Bit 0: RX ready, Bit 1: TX busy
+  - [x] $8001 SERIAL_DATA (R/W) - Read: RX byte, Write: TX byte
+  - [x] $8002 LED_CTRL (W) - LED on/off control
+- [x] TX logic with tx_valid pulse and tx_busy flag
+- [x] RX logic with rx_ready flag
+- [x] 10 I/O controller tests passing
 
-### 6.2: I/O System
-- [ ] `io.wire` - Serial + LED
-- [ ] Test serial TX/RX
-- [ ] Test LED control
-- [ ] Verify terminal output
+### 6.2: Boot Program
+- [x] `boot_minimal.pulse` - Minimal boot using 28 implemented instructions
+- [x] Assembles to ROM at $C000 with reset vector at $FFFC
+- [x] Turns LED on, prints "OK\n" to serial, turns LED off, halts
+- [ ] Boot sequence integration tests (in progress)
+
+### 6.3: Full System Integration
+- [ ] CPU + I/O controller + ROM boot sequence
+- [ ] Serial output capture
+- [ ] LED state verification
 
 **Phase 6 Complete When:**
-- [ ] Boot prints banner
-- [ ] Shell accepts commands
-- [ ] Full system operational
-- [ ] 200+ tests passing
+- [ ] Boot prints banner via serial
+- [ ] LED toggles during boot
+- [ ] Full system integration tests passing
 
 ---
 
@@ -204,12 +234,25 @@
 
 ## Current Status
 
-**Active Phase:** Phase 4 (complete instruction set)
-**Current Task:** JSR/RTS subroutine calls (requires 5-bit state machine)
-**Tests Passing:** 1386 total (288 CPU component tests + 13 WASM tests)
-**Last Updated:** 2025-12-04
+**Active Phase:** Phase 6 (Boot Sequence & Shell)
+**Current Task:** Boot sequence integration tests
+**Tests Passing:** 1418 total (310 CPU + 10 I/O controller tests)
+**Last Updated:** 2025-12-05
 
 ### Recent Accomplishments
+- ✅ **I/O Controller Complete!** Memory-mapped I/O at $8000-$800F
+  - Serial TX/RX with status flags (tx_busy, rx_ready)
+  - LED control register
+  - 10 new tests for all I/O operations
+- ✅ **Boot Program Created!** `boot_minimal.pulse`
+  - Assembles to ROM with reset vector at $FFFC
+  - Uses only 28 implemented instructions
+  - Prints "OK\n" to serial and toggles LED
+- ✅ **Phase 5 Complete!** ROM-based system architecture
+  - Address decoder routes all memory regions correctly
+  - Reset vector reads from $FFFC/$FFFD
+  - 23-state machine with 3-state reset sequence (20→21→22→0)
+  - Fixed DFF race condition with registered reset_hi value
 - ✅ **PHA/PLA Complete!** Stack push/pull for A register - 10 tests (26 total instructions!)
   - Added Stack Pointer (SP) register, initialized to 0xFF on reset
   - Proper 6502 semantics: PHA writes then decrements, PLA increments then reads

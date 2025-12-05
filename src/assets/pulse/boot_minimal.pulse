@@ -1,0 +1,61 @@
+; Dead Silicon Minimal Boot Program
+; Uses only the 28 instructions implemented in Wire CPU
+;
+; Memory Map:
+;   $8000 SERIAL_STATUS (R)   - Bit 0: RX ready, Bit 1: TX busy
+;   $8001 SERIAL_DATA   (R/W) - Read: RX byte, Write: TX byte
+;   $8002 LED_CTRL      (W)   - LED on/off
+;
+; Available instructions:
+;   LDA, LDX, LDY, STA, STX, STY (load/store)
+;   ADC, SBC, CMP (arithmetic/compare)
+;   AND, ORA, EOR (logic)
+;   JMP, JSR, RTS (control)
+;   BEQ, BNE (branches)
+;   INX, DEX, INY, DEY (register ops)
+;   TAX, TAY, TXA, TYA (transfers)
+;   PHA, PLA (stack)
+;   HLT (halt)
+
+; I/O addresses
+IO_STATUS = $8000
+IO_DATA   = $8001
+IO_LED    = $8002
+
+.org $C000
+
+; Entry point (reset vector points here)
+reset:
+    ; Turn on LED to indicate boot
+    LDA #1
+    STA IO_LED
+
+    ; Print "OK" and newline
+    JSR print_banner
+
+    ; Turn off LED
+    LDA #0
+    STA IO_LED
+
+    ; Halt
+    HLT
+
+; Print "OK\n" banner
+print_banner:
+    LDA #79       ; 'O'
+    JSR putchar
+    LDA #75       ; 'K'
+    JSR putchar
+    LDA #10       ; newline
+    JSR putchar
+    RTS
+
+; Send character in A to serial port
+; Note: For simplicity, we don't check TX busy status
+putchar:
+    STA IO_DATA
+    RTS
+
+; Reset vector at $FFFC points to $C000
+.org $FFFC
+.word reset
