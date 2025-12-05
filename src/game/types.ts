@@ -17,9 +17,11 @@ export interface Puzzle {
 }
 
 export interface PuzzleValidation {
-  type: 'output' | 'behavior' | 'code'
+  type: 'output' | 'pattern' | 'behavior' | 'code'
   // For output validation: specific test cases
   testCases?: TestCase[]
+  // For pattern validation: simple pattern matching
+  pattern?: string
   // For code validation: patterns to check
   requiredPattern?: string
   forbiddenPattern?: string

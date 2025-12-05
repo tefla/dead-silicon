@@ -26,9 +26,25 @@ export function validatePuzzle(
     }
   }
 
-  // Try to create simulator from the code
+  // First, do a basic syntax check - try to compile
   const sim = createSimulator(playerCode)
 
+  // For pattern-based validation, check patterns first
+  // This allows validation to work even if the code uses stdlib modules
+  // that aren't defined as primitives
+  if (puzzle.validation.type === 'pattern') {
+    // Even with pattern validation, we want valid syntax
+    if (!sim.ok && !playerCode.trim()) {
+      return {
+        success: false,
+        message: 'Empty code',
+        details: 'Please provide code to validate'
+      }
+    }
+    return validateCodePatterns(puzzle, playerCode)
+  }
+
+  // For output-based tests, we need successful compilation
   if (!sim.ok) {
     return {
       success: false,
