@@ -487,8 +487,9 @@ import { JITSimulator } from './simulator-jit'
 import { LevelizedSimulator } from './simulator-levelized'
 import { JIT2Simulator } from './simulator-jit2'
 import { WASMSimulator } from './simulator-wasm'
+import { WASMFastSimulator } from './simulator-wasm-fast'
 
-export type SimulatorStrategy = 'interpreter' | 'typed-array' | 'jit' | 'levelized' | 'jit2' | 'wasm'
+export type SimulatorStrategy = 'interpreter' | 'typed-array' | 'jit' | 'levelized' | 'jit2' | 'wasm' | 'wasm-fast'
 
 export type SimulateResult =
   | { ok: true; simulator: ISimulator; modules: Map<string, CompiledModule> }
@@ -552,6 +553,9 @@ export function createSimulator(
       break
     case 'wasm':
       simulator = new WASMSimulator(main, modules)
+      break
+    case 'wasm-fast':
+      simulator = new WASMFastSimulator(main, modules)
       break
     default:
       return { ok: false, error: `Unknown strategy: ${strategy} ` }

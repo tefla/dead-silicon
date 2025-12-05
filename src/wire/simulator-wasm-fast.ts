@@ -1,6 +1,9 @@
-// WASM Simulator - Compiles flattened circuit to WebAssembly for maximum efficiency
-// Uses Binaryen.js to generate WASM bytecode at runtime
-// All wire values stored in WASM linear memory for fast i32 operations
+// WASM Fast Simulator - Optimized version with batched execution
+// Key optimizations:
+// 1. Single step() WASM function combining comb+edge+comb
+// 2. runCycle() handles clock low→high in WASM
+// 3. runCycles(n) executes multiple cycles without JS boundary crossing
+// 4. Direct memory access via precomputed offsets
 
 import binaryen from 'binaryen'
 import type { CompiledModule } from './compiler'
@@ -8,7 +11,7 @@ import type { ISimulator } from './simulator'
 import { flatten, type FlattenedCircuit, type FlatNode } from './flatten'
 import { topologicalSort, type TopologicalSortResult } from './topological-sort'
 
-export class WASMSimulator implements ISimulator {
+export class WASMFastSimulator implements ISimulator {
     private circuit: FlattenedCircuit
     private sortResult: TopologicalSortResult
 
@@ -20,14 +23,19 @@ export class WASMSimulator implements ISimulator {
     private dffPrevClock: Int32Array | null = null
 
     // Exported WASM functions
-    private wasmComb: (() => void) | null = null
-    private wasmEdge: (() => number) | null = null
+    private wasmStep: (() => void) | null = null
+    private wasmCycle: (() => void) | null = null
+    private wasmCycles: ((n: number) => void) | null = null
 
     // Index maps for JS interface
     private inputIndices: Map<string, number>
     private outputIndices: Map<string, number>
 
-    // RAM/ROM state (kept in JS for now - complex memory access patterns)
+    // Precomputed wire offsets for direct access (in bytes)
+    private wireOffsets: Map<string, number>
+    private clkWireIndex: number = -1
+
+    // RAM/ROM state (kept in JS for now)
     private ramState: Map<string, Uint8Array>
     private romData: Map<string, Uint8Array>
     private ramPrevClock: Map<string, number>
@@ -48,11 +56,20 @@ export class WASMSimulator implements ISimulator {
         this.inputIndices = new Map()
         for (const input of this.circuit.inputs) {
             this.inputIndices.set(input.name, input.index)
+            if (input.name === 'clk') {
+                this.clkWireIndex = input.index
+            }
         }
 
         this.outputIndices = new Map()
         for (const output of this.circuit.outputs) {
             this.outputIndices.set(output.name, output.index)
+        }
+
+        // Build wire offset map for direct access
+        this.wireOffsets = new Map()
+        for (const [name, index] of this.circuit.wireNames) {
+            this.wireOffsets.set(name, index * 4) // byte offset
         }
 
         // Initialize RAM/ROM state
@@ -80,42 +97,43 @@ export class WASMSimulator implements ISimulator {
         const wireCount = this.circuit.wireCount
         const dffCount = this.sortResult.sequentialNodes.length
 
-        // Calculate memory layout (all i32 values, so multiply by 4 for byte offsets)
+        // Calculate memory layout
         this.valuesOffset = 0
         this.dffStateOffset = wireCount
         this.dffPrevClockOffset = wireCount + dffCount
         const totalI32s = wireCount + dffCount * 2
 
-        // Memory: 1 page = 64KB, we need totalI32s * 4 bytes
+        // Memory pages
         const pages = Math.ceil((totalI32s * 4) / 65536) || 1
-        // Import memory from env instead of creating internal memory
         mod.addMemoryImport('0', 'env', 'memory')
 
-        // Build the combinational evaluation function
+        // Build all functions
         this.buildCombFunction(mod)
-
-        // Build the edge detection function
         this.buildEdgeFunction(mod)
+        this.buildStepFunction(mod)
+        this.buildCycleFunction(mod)
+        this.buildCyclesFunction(mod)
 
-        // Validate the module
+        // Validate
         if (!mod.validate()) {
             console.error('WASM module validation failed')
-            console.error(mod.emitText())
             throw new Error('WASM module validation failed')
         }
 
-        // Optimize the module
-        mod.optimize()
+        // Aggressive optimization settings
+        binaryen.setOptimizeLevel(4)
+        binaryen.setShrinkLevel(0) // Don't shrink, prioritize speed
+        binaryen.setAlwaysInlineMaxSize(100000) // Inline large functions
+        binaryen.setFlexibleInlineMaxSize(100000)
+        binaryen.setOneCallerInlineMaxSize(100000)
 
-        // Debug: print the generated WASM text
-        // console.log('Generated WASM:')
-        // console.log(mod.emitText())
+        // Optimize
+        mod.optimize()
 
         // Emit binary and instantiate
         const binary = mod.emitBinary()
         const wasmModule = new WebAssembly.Module(binary)
 
-        // Create memory externally so we can access it from JS
         this.memory = new WebAssembly.Memory({ initial: pages, maximum: pages })
 
         this.wasmInstance = new WebAssembly.Instance(wasmModule, {
@@ -123,10 +141,11 @@ export class WASMSimulator implements ISimulator {
         })
 
         // Get exported functions
-        this.wasmComb = this.wasmInstance.exports.comb as () => void
-        this.wasmEdge = this.wasmInstance.exports.edge as () => number
+        this.wasmStep = this.wasmInstance.exports.step as () => void
+        this.wasmCycle = this.wasmInstance.exports.cycle as () => void
+        this.wasmCycles = this.wasmInstance.exports.cycles as (n: number) => void
 
-        // Create typed array views into WASM memory
+        // Create typed array views
         const buffer = this.memory.buffer
         this.values = new Int32Array(buffer, this.valuesOffset * 4, wireCount)
         this.dffState = new Int32Array(buffer, this.dffStateOffset * 4, dffCount)
@@ -137,15 +156,13 @@ export class WASMSimulator implements ISimulator {
 
     private buildCombFunction(mod: binaryen.Module): void {
         const seqNodes = this.sortResult.sequentialNodes
-        const memNodes = this.sortResult.memoryNodes
         const combNodes = this.sortResult.combinationalOrder
 
         const stmts: number[] = []
 
-        // 1. Output current DFF values
+        // Output current DFF values
         for (let i = 0; i < seqNodes.length; i++) {
             const node = seqNodes[i]
-            // values[output] = dffState[i]
             stmts.push(
                 mod.i32.store(
                     0, 4,
@@ -155,10 +172,7 @@ export class WASMSimulator implements ISimulator {
             )
         }
 
-        // 2. Memory reads (ROM/RAM) - skip for now, handled in JS
-        // TODO: Could pass ROM/RAM data to WASM memory for full integration
-
-        // 3. Combinational nodes
+        // Combinational nodes
         for (const node of combNodes) {
             const stmt = this.emitNodeEvaluation(mod, node)
             if (stmt !== null) {
@@ -166,14 +180,7 @@ export class WASMSimulator implements ISimulator {
             }
         }
 
-        // Create and export the function
-        mod.addFunction(
-            'comb',
-            binaryen.none,
-            binaryen.none,
-            [],
-            mod.block(null, stmts)
-        )
+        mod.addFunction('comb', binaryen.none, binaryen.none, [], mod.block(null, stmts))
         mod.addFunctionExport('comb', 'comb')
     }
 
@@ -181,12 +188,9 @@ export class WASMSimulator implements ISimulator {
         const seqNodes = this.sortResult.sequentialNodes
 
         const stmts: number[] = []
-
-        // Local variable for anyChange flag
         const anyChangeLocal = 0
         stmts.push(mod.local.set(anyChangeLocal, mod.i32.const(0)))
 
-        // Check each DFF for rising edge
         for (let i = 0; i < seqNodes.length; i++) {
             const node = seqNodes[i]
             const clkInputAddr = (this.valuesOffset + node.inputs[1]) * 4
@@ -194,12 +198,9 @@ export class WASMSimulator implements ISimulator {
             const prevClockAddr = (this.dffPrevClockOffset + i) * 4
             const dffStateAddr = (this.dffStateOffset + i) * 4
 
-            // Load current clock value
             const clk = mod.i32.load(0, 4, mod.i32.const(clkInputAddr))
-            // Load previous clock value
             const prevClk = mod.i32.load(0, 4, mod.i32.const(prevClockAddr))
 
-            // if (prevClk === 0 && clk === 1)
             stmts.push(
                 mod.if(
                     mod.i32.and(
@@ -207,8 +208,6 @@ export class WASMSimulator implements ISimulator {
                         mod.i32.eq(clk, mod.i32.const(1))
                     ),
                     mod.block(null, [
-                        // newValue = values[d_input]
-                        // if (dffState[i] !== newValue) { dffState[i] = newValue; anyChange = 1 }
                         mod.if(
                             mod.i32.ne(
                                 mod.i32.load(0, 4, mod.i32.const(dffStateAddr)),
@@ -227,7 +226,6 @@ export class WASMSimulator implements ISimulator {
                 )
             )
 
-            // Update prevClock
             stmts.push(
                 mod.i32.store(
                     0, 4,
@@ -237,18 +235,97 @@ export class WASMSimulator implements ISimulator {
             )
         }
 
-        // Return anyChange
         stmts.push(mod.return(mod.local.get(anyChangeLocal, binaryen.i32)))
 
-        // Create and export the function
+        mod.addFunction('edge', binaryen.none, binaryen.i32, [binaryen.i32], mod.block(null, stmts))
+        mod.addFunctionExport('edge', 'edge')
+    }
+
+    private buildStepFunction(mod: binaryen.Module): void {
+        // Combined step: comb() + edge() + conditional comb()
+        const stmts: number[] = []
+
+        // Call comb
+        stmts.push(mod.call('comb', [], binaryen.none))
+
+        // Call edge and get result
+        const needsReevaluate = mod.call('edge', [], binaryen.i32)
+
+        // Conditional re-evaluation
+        stmts.push(
+            mod.if(
+                needsReevaluate,
+                mod.call('comb', [], binaryen.none)
+            )
+        )
+
+        mod.addFunction('step', binaryen.none, binaryen.none, [], mod.block(null, stmts))
+        mod.addFunctionExport('step', 'step')
+    }
+
+    private buildCycleFunction(mod: binaryen.Module): void {
+        // Full clock cycle: clk=0, step; clk=1, step
+        // We need to call step() both times to properly update prevClock state
+        if (this.clkWireIndex < 0) {
+            // No clock input, just do two steps
+            const stmts = [
+                mod.call('step', [], binaryen.none),
+                mod.call('step', [], binaryen.none)
+            ]
+            mod.addFunction('cycle', binaryen.none, binaryen.none, [], mod.block(null, stmts))
+            mod.addFunctionExport('cycle', 'cycle')
+            return
+        }
+
+        const clkAddr = (this.valuesOffset + this.clkWireIndex) * 4
+
+        const stmts: number[] = [
+            // clk = 0 (falling edge)
+            mod.i32.store(0, 4, mod.i32.const(clkAddr), mod.i32.const(0)),
+            // step() - updates prevClock, no DFF changes on falling edge
+            mod.call('step', [], binaryen.none),
+            // clk = 1 (rising edge - DFFs trigger)
+            mod.i32.store(0, 4, mod.i32.const(clkAddr), mod.i32.const(1)),
+            // step() - DFFs capture on rising edge
+            mod.call('step', [], binaryen.none)
+        ]
+
+        mod.addFunction('cycle', binaryen.none, binaryen.none, [], mod.block(null, stmts))
+        mod.addFunctionExport('cycle', 'cycle')
+    }
+
+    private buildCyclesFunction(mod: binaryen.Module): void {
+        // Run n clock cycles entirely in WASM
+        const nParam = 0 // parameter index
+        const iLocal = 1 // loop counter
+
+        const stmts: number[] = [
+            // i = 0
+            mod.local.set(iLocal, mod.i32.const(0)),
+            // while (i < n)
+            mod.loop('loop',
+                mod.if(
+                    mod.i32.lt_u(mod.local.get(iLocal, binaryen.i32), mod.local.get(nParam, binaryen.i32)),
+                    mod.block(null, [
+                        // cycle()
+                        mod.call('cycle', [], binaryen.none),
+                        // i++
+                        mod.local.set(iLocal, mod.i32.add(mod.local.get(iLocal, binaryen.i32), mod.i32.const(1))),
+                        // continue loop
+                        mod.br('loop')
+                    ])
+                )
+            )
+        ]
+
         mod.addFunction(
-            'edge',
+            'cycles',
+            binaryen.createType([binaryen.i32]), // parameter: n
             binaryen.none,
-            binaryen.i32,
-            [binaryen.i32], // anyChange local
+            [binaryen.i32], // local: i
             mod.block(null, stmts)
         )
-        mod.addFunctionExport('edge', 'edge')
+        mod.addFunctionExport('cycles', 'cycles')
     }
 
     private emitNodeEvaluation(mod: binaryen.Module, node: FlatNode): number | null {
@@ -256,11 +333,7 @@ export class WASMSimulator implements ISimulator {
 
         switch (node.type) {
             case 'const':
-                return mod.i32.store(
-                    0, 4,
-                    mod.i32.const(outAddr),
-                    mod.i32.const(node.constValue ?? 0)
-                )
+                return mod.i32.store(0, 4, mod.i32.const(outAddr), mod.i32.const(node.constValue ?? 0))
 
             case 'nand': {
                 const mask = node.mask ?? ((1 << node.width) - 1)
@@ -302,7 +375,6 @@ export class WASMSimulator implements ISimulator {
 
             case 'index': {
                 const inAddr = (this.valuesOffset + node.inputs[0]) * 4
-                // values[out] = (values[in] >> bitIndex) & 1
                 return mod.i32.store(
                     0, 4,
                     mod.i32.const(outAddr),
@@ -319,7 +391,6 @@ export class WASMSimulator implements ISimulator {
             case 'slice': {
                 const inAddr = (this.valuesOffset + node.inputs[0]) * 4
                 const mask = node.mask ?? ((1 << (node.sliceEnd! - node.sliceStart! + 1)) - 1)
-                // values[out] = (values[in] >> sliceStart) & mask
                 return mod.i32.store(
                     0, 4,
                     mod.i32.const(outAddr),
@@ -334,7 +405,6 @@ export class WASMSimulator implements ISimulator {
             }
 
             case 'concat': {
-                // Build up the concatenation with shifts and ORs
                 let shift = 0
                 let expr: number | null = null
 
@@ -367,7 +437,6 @@ export class WASMSimulator implements ISimulator {
 
             case 'input':
             case 'output':
-                // No-op
                 return null
 
             default:
@@ -375,6 +444,7 @@ export class WASMSimulator implements ISimulator {
         }
     }
 
+    // Standard API
     setInput(name: string, value: number): void {
         const index = this.inputIndices.get(name)
         if (index !== undefined && this.values) {
@@ -387,48 +457,29 @@ export class WASMSimulator implements ISimulator {
         if (index !== undefined && this.values) {
             return this.values[index]
         }
-
-        // Try wire names for member access
         const wireIndex = this.circuit.wireNames.get(name)
         if (wireIndex !== undefined && this.values) {
             return this.values[wireIndex]
         }
-
         return 0
     }
 
     getWire(name: string): number {
         if (!this.values) return 0
-
         const index = this.circuit.wireNames.get(name)
         if (index !== undefined) {
             return this.values[index]
         }
-
-        // Handle indexing
-        const indexMatch = name.match(/^(.+)\[(\d+)\]$/)
-        if (indexMatch) {
-            const [, base, indexStr] = indexMatch
-            const baseIndex = this.circuit.wireNames.get(base)
-            if (baseIndex !== undefined) {
-                return (this.values[baseIndex] >> parseInt(indexStr, 10)) & 1
-            }
-        }
-
-        // Handle slicing
-        const sliceMatch = name.match(/^(.+)\[(\d+):(\d+)\]$/)
-        if (sliceMatch) {
-            const [, base, startStr, endStr] = sliceMatch
-            const baseIndex = this.circuit.wireNames.get(base)
-            if (baseIndex !== undefined) {
-                const start = parseInt(startStr, 10)
-                const end = parseInt(endStr, 10)
-                const mask = (1 << (end - start + 1)) - 1
-                return (this.values[baseIndex] >> start) & mask
-            }
-        }
-
         return 0
+    }
+
+    // Direct memory access API for hot paths
+    getWireIndex(name: string): number {
+        return this.circuit.wireNames.get(name) ?? -1
+    }
+
+    getValuesArray(): Int32Array | null {
+        return this.values
     }
 
     loadRom(data: Uint8Array | number[], nodeId?: string): void {
@@ -471,18 +522,17 @@ export class WASMSimulator implements ISimulator {
     }
 
     step(): void {
-        if (!this.wasmComb || !this.wasmEdge) return
+        this.wasmStep?.()
+    }
 
-        // 1. Evaluate combinational logic (in WASM)
-        this.wasmComb()
+    // New: efficient clock cycle
+    cycle(): void {
+        this.wasmCycle?.()
+    }
 
-        // 2. Handle clock edges (in WASM)
-        const needsReevaluate = this.wasmEdge()
-
-        // 3. Re-evaluate if any edges triggered
-        if (needsReevaluate) {
-            this.wasmComb()
-        }
+    // New: batch execution
+    runCycles(n: number): void {
+        this.wasmCycles?.(n)
     }
 
     run(cycles: number): void {
