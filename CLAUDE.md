@@ -1,5 +1,22 @@
 # Dead Silicon - Project Guide
 
+## CRITICAL: Wire/Pulse Only - No TypeScript Game Logic
+
+**ALL game logic MUST be implemented in `.wire` and `.pulse` files. NEVER in TypeScript.**
+
+TypeScript is ONLY allowed for:
+1. **WASM simulator host** - Compiling and running Wire HDL
+2. **React UI shell** - Displaying terminal, editor, routing serial I/O
+
+**The simulation IS the validation.** When a player fixes a broken circuit:
+1. They edit a `.wire` file
+2. They run `flash` in the shell (handled by boot.pulse)
+3. The WASM simulator reloads with the new circuit
+4. If the fix is correct, the simulation works (O2 rises, power flows, etc.)
+5. If wrong, it doesn't - no artificial "puzzle validation" in TypeScript
+
+This is what makes the game authentic - real hardware simulation, not fake game logic.
+
 ## Vision
 
 Dead Silicon is a game where players repair a malfunctioning spacecraft by fixing broken hardware circuits. The core innovation is that **the game runs on actual simulated hardware** - not fake game logic pretending to be hardware.
@@ -129,7 +146,31 @@ describe('WASM Simulator ROM', () => {
 
 ## Don't
 
+- **Don't implement game logic in TypeScript** - use .wire and .pulse files
+- **Don't add "puzzle validation" in TypeScript** - the simulation IS the validation
 - Don't add alternative simulators
 - Don't skip tests because "WASM doesn't support X" - fix WASM instead
 - Don't over-engineer - minimum viable implementation first
 - Don't add features without tests
+
+## The Correct Architecture
+
+```
+Player edits broken_circuit.wire
+        │
+        ▼
+Player types "flash broken_circuit" in terminal
+        │
+        ▼
+boot.pulse handles "flash" command
+        │
+        ▼
+WASM simulator reloads with new .wire file
+        │
+        ▼
+Simulation runs - if circuit works, game state changes
+(O2 rises, power flows, doors open, etc.)
+        │
+        ▼
+NO TYPESCRIPT VALIDATION - physics determines success
+```

@@ -1,10 +1,25 @@
 ; Dead Silicon Boot Sequence
-; Minimal boot loader that initializes system and runs shell
-; Uses only: immediate, absolute, implied, relative addressing modes
+; Full shell with game commands
+; Uses: immediate, absolute, implied, relative addressing modes
 
 .org $E000
 
+; ============================================
+; Memory Map:
+;   $0200-$021F: Command buffer (32 bytes)
+;   $0220:       Command length
+;   $0221-$0230: Temp storage
+; ============================================
+
+; I/O Ports
+; SERIAL_RX    = $F000
+; SERIAL_TX    = $F001
+; SERIAL_STATUS = $F002
+; FLASH_CMD    = $F010 (write filename hash to trigger reload)
+
+; ============================================
 ; Reset vector entry point
+; ============================================
 reset:
     ; Initialize stack pointer
     LDX #$FF
@@ -25,52 +40,56 @@ reset:
 
 boot_fail:
     JSR print_fail_msg
-    BRK  ; Halt
+    HLT
 
-; Print boot message (unrolled string printing)
+; ============================================
+; Print routines
+; ============================================
 print_boot_msg:
-    LDA #68  ; 'D'
+    ; "DEAD SILICON v0.1\n"
+    LDA #68
     JSR print_char
-    LDA #69  ; 'E'
+    LDA #69
     JSR print_char
-    LDA #65  ; 'A'
+    LDA #65
     JSR print_char
-    LDA #68  ; 'D'
+    LDA #68
     JSR print_char
-    LDA #32  ; ' '
+    LDA #32
     JSR print_char
-    LDA #83  ; 'S'
+    LDA #83
     JSR print_char
-    LDA #73  ; 'I'
+    LDA #73
     JSR print_char
-    LDA #76  ; 'L'
+    LDA #76
     JSR print_char
-    LDA #73  ; 'I'
+    LDA #73
     JSR print_char
-    LDA #67  ; 'C'
+    LDA #67
     JSR print_char
-    LDA #79  ; 'O'
+    LDA #79
     JSR print_char
-    LDA #78  ; 'N'
+    LDA #78
     JSR print_char
-    LDA #32  ; ' '
+    LDA #32
     JSR print_char
-    LDA #118  ; 'v'
+    LDA #118
     JSR print_char
-    LDA #48  ; '0'
+    LDA #48
     JSR print_char
-    LDA #46  ; '.'
+    LDA #46
     JSR print_char
-    LDA #49  ; '1'
+    LDA #49
     JSR print_char
-    LDA #10  ; newline
+    LDA #10
     JSR print_char
     RTS
 
 print_ok_msg:
-    LDA #79  ; 'O'
+    ; "OK\n\n"
+    LDA #79
     JSR print_char
-    LDA #75  ; 'K'
+    LDA #75
     JSR print_char
     LDA #10
     JSR print_char
@@ -79,43 +98,51 @@ print_ok_msg:
     RTS
 
 print_fail_msg:
-    LDA #70  ; 'F'
+    ; "FAIL\n"
+    LDA #70
     JSR print_char
-    LDA #65  ; 'A'
+    LDA #65
     JSR print_char
-    LDA #73  ; 'I'
+    LDA #73
     JSR print_char
-    LDA #76  ; 'L'
+    LDA #76
     JSR print_char
     LDA #10
     JSR print_char
     RTS
 
-; Print character in A to serial
 print_char:
-    STA $F001  ; SERIAL_TX
+    STA $F001
     RTS
 
-; Simple ALU test - verify ADD works
-; Returns: Z=0 if pass, Z=1 if fail
+print_newline:
+    LDA #10
+    JSR print_char
+    RTS
+
+; ============================================
+; ALU test
+; ============================================
 test_alu:
     CLC
     LDA #5
     ADC #3
     CMP #8
     BEQ alu_pass
-    LDA #1  ; Non-zero = fail
+    LDA #1
     RTS
 alu_pass:
-    LDA #0  ; Zero = pass
+    LDA #0
     RTS
 
-; Shell entry point
+; ============================================
+; Shell main loop
+; ============================================
 shell_main:
     ; Print prompt "$ "
-    LDA #36  ; '$'
+    LDA #36
     JSR print_char
-    LDA #32  ; ' '
+    LDA #32
     JSR print_char
 
     ; Read command into buffer
@@ -127,16 +154,24 @@ shell_main:
     ; Loop
     JMP shell_main
 
-; Read command from serial - just read first character
-; Store it at $0200, then wait for newline
+; ============================================
+; Read command from serial
+; Stores first character in $0200, skips rest until newline
+; ============================================
 read_command:
-    ; Wait for input
-wait_char:
-    LDA $F002  ; SERIAL_STATUS
-    BEQ wait_char
+    ; Wait for first character
+read_first:
+    LDA $F002       ; SERIAL_STATUS
+    BEQ read_first
 
-    ; Read character
-    LDA $F000  ; SERIAL_RX
+    ; Read first character
+    LDA $F000       ; SERIAL_RX
+
+    ; Check for immediate newline (empty command)
+    CMP #10
+    BEQ read_empty
+    CMP #13
+    BEQ read_empty
 
     ; Store first character
     STA $0200
@@ -144,87 +179,910 @@ wait_char:
     ; Echo it
     JSR print_char
 
-    ; Now wait for newline (consume rest of line)
-wait_newline:
-    LDA $F002  ; SERIAL_STATUS
-    BEQ wait_newline
+    ; Skip remaining characters until newline
+read_skip:
+    LDA $F002       ; SERIAL_STATUS
+    BEQ read_skip
 
-    LDA $F000  ; SERIAL_RX
+    LDA $F000       ; SERIAL_RX
 
     ; Check for newline
     CMP #10
-    BEQ got_newline
+    BEQ read_done
     CMP #13
-    BEQ got_newline
+    BEQ read_done
 
-    ; Echo character (not stored, just echo)
+    ; Echo and continue skipping
     JSR print_char
-    JMP wait_newline
+    JMP read_skip
 
-got_newline:
+read_empty:
+    ; Empty command - store null
+    LDA #0
+    STA $0200
+
+read_done:
     ; Print newline
-    LDA #10
-    JSR print_char
+    JSR print_newline
 
     RTS
 
-; Handle command - first character is at $0200
+; ============================================
+; Handle command - parse and dispatch
+; Uses trampoline pattern for long jumps
+; ============================================
 handle_command:
-    ; Check first character
+    ; Get first character (also serves as empty check)
     LDA $0200
     BEQ cmd_empty
 
-    CMP #104  ; 'h'
-    BEQ cmd_help
-    CMP #115  ; 's'
-    BEQ cmd_status
+    ; 'h' = help
+    CMP #104
+    BNE not_help
+    JMP cmd_help
+not_help:
 
-unknown_cmd:
-    LDA #63  ; '?'
-    JSR print_char
-    LDA #10
-    JSR print_char
+    ; 's' = status
+    CMP #115
+    BNE not_status
+    JMP cmd_status
+not_status:
+
+    ; 'd' = diag
+    CMP #100
+    BNE not_diag
+    JMP cmd_diag
+not_diag:
+
+    ; 'c' = cat
+    CMP #99
+    BNE not_cat
+    JMP cmd_cat
+not_cat:
+
+    ; 'l' = ls
+    CMP #108
+    BNE not_ls
+    JMP cmd_ls
+not_ls:
+
+    ; 'f' = flash
+    CMP #102
+    BNE not_flash
+    JMP cmd_flash
+not_flash:
+
+    ; 'r' = reboot
+    CMP #114
+    BNE not_reboot
+    JMP cmd_reboot
+not_reboot:
+
+    ; Unknown command
+    JMP unknown_cmd
+
 cmd_empty:
     RTS
 
+unknown_cmd:
+    ; "?\n"
+    LDA #63
+    JSR print_char
+    LDA #10
+    JSR print_char
+    RTS
+
+; ============================================
+; Command: help
+; ============================================
 cmd_help:
-    LDA #104  ; 'h'
+    ; "Commands:\n"
+    LDA #67
     JSR print_char
-    LDA #101  ; 'e'
+    LDA #111
     JSR print_char
-    LDA #108  ; 'l'
+    LDA #109
     JSR print_char
-    LDA #112  ; 'p'
+    LDA #109
     JSR print_char
-    LDA #44  ; ','
+    LDA #97
     JSR print_char
-    LDA #32  ; ' '
+    LDA #110
     JSR print_char
-    LDA #115  ; 's'
+    LDA #100
     JSR print_char
-    LDA #116  ; 't'
+    LDA #115
     JSR print_char
-    LDA #97  ; 'a'
+    LDA #58
     JSR print_char
-    LDA #116  ; 't'
+    JSR print_newline
+
+    ; "  help\n"
+    LDA #32
     JSR print_char
-    LDA #117  ; 'u'
+    LDA #32
     JSR print_char
-    LDA #115  ; 's'
+    LDA #104
     JSR print_char
-    LDA #10
+    LDA #101
     JSR print_char
+    LDA #108
+    JSR print_char
+    LDA #112
+    JSR print_char
+    JSR print_newline
+
+    ; "  status\n"
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #115
+    JSR print_char
+    LDA #116
+    JSR print_char
+    LDA #97
+    JSR print_char
+    LDA #116
+    JSR print_char
+    LDA #117
+    JSR print_char
+    LDA #115
+    JSR print_char
+    JSR print_newline
+
+    ; "  diag\n"
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #100
+    JSR print_char
+    LDA #105
+    JSR print_char
+    LDA #97
+    JSR print_char
+    LDA #103
+    JSR print_char
+    JSR print_newline
+
+    ; "  ls\n"
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #108
+    JSR print_char
+    LDA #115
+    JSR print_char
+    JSR print_newline
+
+    ; "  cat\n"
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #99
+    JSR print_char
+    LDA #97
+    JSR print_char
+    LDA #116
+    JSR print_char
+    JSR print_newline
+
+    ; "  flash\n"
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #102
+    JSR print_char
+    LDA #108
+    JSR print_char
+    LDA #97
+    JSR print_char
+    LDA #115
+    JSR print_char
+    LDA #104
+    JSR print_char
+    JSR print_newline
+
     RTS
 
+; ============================================
+; Command: status
+; ============================================
 cmd_status:
-    LDA #79  ; 'O'
+    ; "CYGNUS-7 STATUS\n"
+    LDA #67
     JSR print_char
-    LDA #75  ; 'K'
+    LDA #89
     JSR print_char
-    LDA #10
+    LDA #71
     JSR print_char
+    LDA #78
+    JSR print_char
+    LDA #85
+    JSR print_char
+    LDA #83
+    JSR print_char
+    LDA #45
+    JSR print_char
+    LDA #55
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #83
+    JSR print_char
+    LDA #84
+    JSR print_char
+    LDA #65
+    JSR print_char
+    LDA #84
+    JSR print_char
+    LDA #85
+    JSR print_char
+    LDA #83
+    JSR print_char
+    JSR print_newline
+
+    ; "===============\n"
+    LDX #15
+status_line:
+    LDA #61
+    JSR print_char
+    DEX
+    BNE status_line
+    JSR print_newline
+
+    ; "CPU:     OK\n"
+    LDA #67
+    JSR print_char
+    LDA #80
+    JSR print_char
+    LDA #85
+    JSR print_char
+    LDA #58
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #79
+    JSR print_char
+    LDA #75
+    JSR print_char
+    JSR print_newline
+
+    ; "LIFESUP: CRITICAL\n"
+    LDA #76
+    JSR print_char
+    LDA #73
+    JSR print_char
+    LDA #70
+    JSR print_char
+    LDA #69
+    JSR print_char
+    LDA #83
+    JSR print_char
+    LDA #85
+    JSR print_char
+    LDA #80
+    JSR print_char
+    LDA #58
+    JSR print_char
+    LDA #32
+    JSR print_char
+    ; "CRITICAL"
+    LDA #67
+    JSR print_char
+    LDA #82
+    JSR print_char
+    LDA #73
+    JSR print_char
+    LDA #84
+    JSR print_char
+    LDA #73
+    JSR print_char
+    LDA #67
+    JSR print_char
+    LDA #65
+    JSR print_char
+    LDA #76
+    JSR print_char
+    JSR print_newline
+
+    ; "POWER:   BACKUP\n"
+    LDA #80
+    JSR print_char
+    LDA #79
+    JSR print_char
+    LDA #87
+    JSR print_char
+    LDA #69
+    JSR print_char
+    LDA #82
+    JSR print_char
+    LDA #58
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    ; "BACKUP"
+    LDA #66
+    JSR print_char
+    LDA #65
+    JSR print_char
+    LDA #67
+    JSR print_char
+    LDA #75
+    JSR print_char
+    LDA #85
+    JSR print_char
+    LDA #80
+    JSR print_char
+    JSR print_newline
+
+    ; "NAV:     OFFLINE\n"
+    LDA #78
+    JSR print_char
+    LDA #65
+    JSR print_char
+    LDA #86
+    JSR print_char
+    LDA #58
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    ; "OFFLINE"
+    LDA #79
+    JSR print_char
+    LDA #70
+    JSR print_char
+    LDA #70
+    JSR print_char
+    LDA #76
+    JSR print_char
+    LDA #73
+    JSR print_char
+    LDA #78
+    JSR print_char
+    LDA #69
+    JSR print_char
+    JSR print_newline
+
+    ; "COMMS:   OFFLINE\n"
+    LDA #67
+    JSR print_char
+    LDA #79
+    JSR print_char
+    LDA #77
+    JSR print_char
+    LDA #77
+    JSR print_char
+    LDA #83
+    JSR print_char
+    LDA #58
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    ; "OFFLINE"
+    LDA #79
+    JSR print_char
+    LDA #70
+    JSR print_char
+    LDA #70
+    JSR print_char
+    LDA #76
+    JSR print_char
+    LDA #73
+    JSR print_char
+    LDA #78
+    JSR print_char
+    LDA #69
+    JSR print_char
+    JSR print_newline
+
     RTS
 
+; ============================================
+; Command: diag
+; ============================================
+cmd_diag:
+    ; "DIAGNOSTICS\n"
+    LDA #68
+    JSR print_char
+    LDA #73
+    JSR print_char
+    LDA #65
+    JSR print_char
+    LDA #71
+    JSR print_char
+    LDA #78
+    JSR print_char
+    LDA #79
+    JSR print_char
+    LDA #83
+    JSR print_char
+    LDA #84
+    JSR print_char
+    LDA #73
+    JSR print_char
+    LDA #67
+    JSR print_char
+    LDA #83
+    JSR print_char
+    JSR print_newline
+
+    ; "===========\n"
+    LDX #11
+diag_line:
+    LDA #61
+    JSR print_char
+    DEX
+    BNE diag_line
+    JSR print_newline
+
+    ; Run ALU test
+    ; "ALU: "
+    LDA #65
+    JSR print_char
+    LDA #76
+    JSR print_char
+    LDA #85
+    JSR print_char
+    LDA #58
+    JSR print_char
+    LDA #32
+    JSR print_char
+
+    JSR test_alu
+    BNE diag_alu_fail
+    ; "PASS"
+    LDA #80
+    JSR print_char
+    LDA #65
+    JSR print_char
+    LDA #83
+    JSR print_char
+    LDA #83
+    JSR print_char
+    JMP diag_alu_done
+diag_alu_fail:
+    ; "FAIL"
+    LDA #70
+    JSR print_char
+    LDA #65
+    JSR print_char
+    LDA #73
+    JSR print_char
+    LDA #76
+    JSR print_char
+diag_alu_done:
+    JSR print_newline
+
+    ; "O2:  47%  [!]\n"  (damaged sensor shows half value)
+    LDA #79
+    JSR print_char
+    LDA #50
+    JSR print_char
+    LDA #58
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #52
+    JSR print_char
+    LDA #55
+    JSR print_char
+    LDA #37
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #91
+    JSR print_char
+    LDA #33
+    JSR print_char
+    LDA #93
+    JSR print_char
+    JSR print_newline
+
+    ; "CO2: HIGH [!]\n"
+    LDA #67
+    JSR print_char
+    LDA #79
+    JSR print_char
+    LDA #50
+    JSR print_char
+    LDA #58
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #72
+    JSR print_char
+    LDA #73
+    JSR print_char
+    LDA #71
+    JSR print_char
+    LDA #72
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #91
+    JSR print_char
+    LDA #33
+    JSR print_char
+    LDA #93
+    JSR print_char
+    JSR print_newline
+
+    RTS
+
+; ============================================
+; Command: ls
+; ============================================
+cmd_ls:
+    ; "lifesup/\n"
+    LDA #108
+    JSR print_char
+    LDA #105
+    JSR print_char
+    LDA #102
+    JSR print_char
+    LDA #101
+    JSR print_char
+    LDA #115
+    JSR print_char
+    LDA #117
+    JSR print_char
+    LDA #112
+    JSR print_char
+    LDA #47
+    JSR print_char
+    JSR print_newline
+
+    ; "  o2_sensor.wire\n"
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #111
+    JSR print_char
+    LDA #50
+    JSR print_char
+    LDA #95
+    JSR print_char
+    LDA #115
+    JSR print_char
+    LDA #101
+    JSR print_char
+    LDA #110
+    JSR print_char
+    LDA #115
+    JSR print_char
+    LDA #111
+    JSR print_char
+    LDA #114
+    JSR print_char
+    LDA #46
+    JSR print_char
+    LDA #119
+    JSR print_char
+    LDA #105
+    JSR print_char
+    LDA #114
+    JSR print_char
+    LDA #101
+    JSR print_char
+    JSR print_newline
+
+    ; "  co2_scrubber.wire\n"
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #99
+    JSR print_char
+    LDA #111
+    JSR print_char
+    LDA #50
+    JSR print_char
+    LDA #95
+    JSR print_char
+    LDA #115
+    JSR print_char
+    LDA #99
+    JSR print_char
+    LDA #114
+    JSR print_char
+    LDA #117
+    JSR print_char
+    LDA #98
+    JSR print_char
+    LDA #98
+    JSR print_char
+    LDA #101
+    JSR print_char
+    LDA #114
+    JSR print_char
+    LDA #46
+    JSR print_char
+    LDA #119
+    JSR print_char
+    LDA #105
+    JSR print_char
+    LDA #114
+    JSR print_char
+    LDA #101
+    JSR print_char
+    JSR print_newline
+
+    ; "power/\n"
+    LDA #112
+    JSR print_char
+    LDA #111
+    JSR print_char
+    LDA #119
+    JSR print_char
+    LDA #101
+    JSR print_char
+    LDA #114
+    JSR print_char
+    LDA #47
+    JSR print_char
+    JSR print_newline
+
+    ; "  solar_ctrl.wire\n"
+    LDA #32
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #115
+    JSR print_char
+    LDA #111
+    JSR print_char
+    LDA #108
+    JSR print_char
+    LDA #97
+    JSR print_char
+    LDA #114
+    JSR print_char
+    LDA #95
+    JSR print_char
+    LDA #99
+    JSR print_char
+    LDA #116
+    JSR print_char
+    LDA #114
+    JSR print_char
+    LDA #108
+    JSR print_char
+    LDA #46
+    JSR print_char
+    LDA #119
+    JSR print_char
+    LDA #105
+    JSR print_char
+    LDA #114
+    JSR print_char
+    LDA #101
+    JSR print_char
+    JSR print_newline
+
+    RTS
+
+; ============================================
+; Command: cat (placeholder)
+; ============================================
+cmd_cat:
+    ; "cat: file not found\n"
+    LDA #99
+    JSR print_char
+    LDA #97
+    JSR print_char
+    LDA #116
+    JSR print_char
+    LDA #58
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #102
+    JSR print_char
+    LDA #105
+    JSR print_char
+    LDA #108
+    JSR print_char
+    LDA #101
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #110
+    JSR print_char
+    LDA #111
+    JSR print_char
+    LDA #116
+    JSR print_char
+    LDA #32
+    JSR print_char
+    LDA #102
+    JSR print_char
+    LDA #111
+    JSR print_char
+    LDA #117
+    JSR print_char
+    LDA #110
+    JSR print_char
+    LDA #100
+    JSR print_char
+    JSR print_newline
+    RTS
+
+; ============================================
+; Command: flash (placeholder - triggers reload)
+; ============================================
+cmd_flash:
+    ; "Compiling... "
+    LDA #67
+    JSR print_char
+    LDA #111
+    JSR print_char
+    LDA #109
+    JSR print_char
+    LDA #112
+    JSR print_char
+    LDA #105
+    JSR print_char
+    LDA #108
+    JSR print_char
+    LDA #105
+    JSR print_char
+    LDA #110
+    JSR print_char
+    LDA #103
+    JSR print_char
+    LDA #46
+    JSR print_char
+    LDA #46
+    JSR print_char
+    LDA #46
+    JSR print_char
+    LDA #32
+    JSR print_char
+
+    ; Write to FLASH_CMD to trigger reload
+    ; (Host will intercept this and recompile the circuit)
+    LDA #1
+    STA $F010
+
+    ; "OK\n"
+    LDA #79
+    JSR print_char
+    LDA #75
+    JSR print_char
+    JSR print_newline
+
+    ; "Flashing... "
+    LDA #70
+    JSR print_char
+    LDA #108
+    JSR print_char
+    LDA #97
+    JSR print_char
+    LDA #115
+    JSR print_char
+    LDA #104
+    JSR print_char
+    LDA #105
+    JSR print_char
+    LDA #110
+    JSR print_char
+    LDA #103
+    JSR print_char
+    LDA #46
+    JSR print_char
+    LDA #46
+    JSR print_char
+    LDA #46
+    JSR print_char
+    LDA #32
+    JSR print_char
+
+    ; "OK\n"
+    LDA #79
+    JSR print_char
+    LDA #75
+    JSR print_char
+    JSR print_newline
+
+    ; "Rebooting...\n"
+    LDA #82
+    JSR print_char
+    LDA #101
+    JSR print_char
+    LDA #98
+    JSR print_char
+    LDA #111
+    JSR print_char
+    LDA #111
+    JSR print_char
+    LDA #116
+    JSR print_char
+    LDA #105
+    JSR print_char
+    LDA #110
+    JSR print_char
+    LDA #103
+    JSR print_char
+    LDA #46
+    JSR print_char
+    LDA #46
+    JSR print_char
+    LDA #46
+    JSR print_char
+    JSR print_newline
+
+    ; Jump to reset (simulated reboot)
+    JMP reset
+
+; ============================================
+; Command: reboot
+; ============================================
+cmd_reboot:
+    ; "Rebooting...\n"
+    LDA #82
+    JSR print_char
+    LDA #101
+    JSR print_char
+    LDA #98
+    JSR print_char
+    LDA #111
+    JSR print_char
+    LDA #111
+    JSR print_char
+    LDA #116
+    JSR print_char
+    LDA #105
+    JSR print_char
+    LDA #110
+    JSR print_char
+    LDA #103
+    JSR print_char
+    LDA #46
+    JSR print_char
+    LDA #46
+    JSR print_char
+    LDA #46
+    JSR print_char
+    JSR print_newline
+
+    JMP reset
+
+; ============================================
 ; Reset vector
+; ============================================
 .org $FFFC
 .word reset

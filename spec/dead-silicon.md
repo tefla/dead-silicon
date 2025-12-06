@@ -940,6 +940,26 @@ All other input passes through to the FPGA shell.
 
 ## 10. Technical Implementation
 
+### 10.0 CRITICAL ARCHITECTURE PRINCIPLE
+
+**The simulation IS the validation. No TypeScript puzzle logic.**
+
+When a player fixes a broken circuit:
+1. They edit a `.wire` file (e.g., fix bit slice from `[0:6]` to `[0:7]`)
+2. They run `flash lifesup/o2_sensor.wire` in the shell
+3. boot.pulse handles the flash command, triggers WASM simulator reload
+4. The circuit is now correct - O2 sensor reads 94% instead of 47%
+5. CO2 scrubber comes online (it was waiting for valid sensor data)
+
+**There is no TypeScript code that checks "is this puzzle solved?"**
+
+The game state changes because the physics of the simulation change. If you fix the O2 sensor, life support works. If you don't, it doesn't. This is what makes the game authentic.
+
+**TypeScript is ONLY for:**
+- WASM simulator host (compiling/running Wire HDL)
+- React UI shell (displaying terminal, editor, routing serial I/O)
+- Loading/saving game state (which files are edited, not "solved")
+
 ### 10.1 TypeScript Structure
 
 ```
