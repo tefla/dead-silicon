@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useGameStore } from '../../game/useGameStore'
 import { gameFiles } from '../../game/files'
 import { puzzles } from '../../game/puzzles'
-import { quickCheckPuzzle } from '../../game/validator'
+import { quickCheck } from '../../game/validator'
 import { AlertCircle, Check, FileCode, Zap } from 'lucide-react'
 import Editor, { type OnMount } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
@@ -20,9 +20,9 @@ export function GameEditor() {
   const puzzle = file?.puzzleId ? puzzles[file.puzzleId] : null
   const isSolved = puzzle ? solvedPuzzles.includes(puzzle.id) : false
 
-  // Check if current code appears correct (for real-time feedback)
-  const appearsCorrect = puzzle && !isSolved
-    ? quickCheckPuzzle(puzzle.id, editorContent)
+  // Check if current code compiles (for real-time feedback)
+  const codeCompiles = puzzle && !isSolved
+    ? quickCheck(editorContent).ok
     : false
 
   const handleEditorMount: OnMount = useCallback((editor) => {
@@ -69,7 +69,7 @@ export function GameEditor() {
                 <Check size={10} />
                 FIXED
               </span>
-            ) : appearsCorrect ? (
+            ) : codeCompiles ? (
               <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 text-xs rounded flex items-center gap-1">
                 <Zap size={10} />
                 READY TO FLASH
