@@ -16,6 +16,7 @@ export function GameConsole() {
     activeFile,
     editorContent,
     solvePuzzle,
+    setActiveFile,
   } = useGameStore()
 
   // Add a line to output
@@ -91,6 +92,21 @@ export function GameConsole() {
     }
   }, [activeFile, editorContent, addLine, solvePuzzle])
 
+  // Handle open command - intercept to set active file in editor
+  const handleOpen = useCallback((filename: string) => {
+    const file = gameFiles[filename]
+    if (!file) {
+      addLine(`open: file not found: ${filename}`)
+      addLine('$')
+      return
+    }
+
+    // Set the file as active in the editor
+    setActiveFile(filename, file.content)
+    addLine(`Opened ${filename}`)
+    addLine('$')
+  }, [addLine, setActiveFile])
+
   // Auto-scroll to bottom when output changes
   useEffect(() => {
     if (consoleRef.current) {
@@ -109,6 +125,20 @@ export function GameConsole() {
     const cmd = input.trim()
 
     if (cmd) {
+      // Check if this is an open command - intercept to set active file
+      if (cmd.startsWith('open ') || cmd === 'open') {
+        const filename = cmd.slice(5).trim()
+        addLine(`> ${cmd}`)
+        if (!filename) {
+          addLine('Usage: open <filename>')
+          addLine('$')
+        } else {
+          handleOpen(filename)
+        }
+        setInput('')
+        return
+      }
+
       // Check if this is a flash command - intercept it
       if (cmd.startsWith('flash ') || cmd === 'flash') {
         const filename = cmd.slice(6).trim()
