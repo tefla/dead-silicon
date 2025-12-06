@@ -21,9 +21,12 @@ const o2Sensor: Puzzle = {
 In binary, that means the highest bit (bit 7) is being lost.
 Check the bit slice - is it capturing all 8 bits?`,
   validation: {
-    type: 'pattern',
-    // Pattern: must have [0:7] and must NOT have [0:6]
-    pattern: '[0:7]'
+    type: 'output',
+    testCases: [
+      { inputs: { analog: 0b11111111, clk: 1 }, expectedOutputs: { level: 0b11111111 } },
+      { inputs: { analog: 0b10000000, clk: 1 }, expectedOutputs: { level: 0b10000000 } },
+      { inputs: { analog: 0b01011110, clk: 1 }, expectedOutputs: { level: 0b01011110 } }, // 94
+    ]
   }
 }
 
@@ -48,9 +51,15 @@ const co2Scrubber: Puzzle = {
 turn ON when CO2 is ABOVE threshold. Look at the comparison - is it
 checking greater-than or less-than?`,
   validation: {
-    type: 'pattern',
-    // Pattern: must invert the comparison result with not(diff[7])
-    pattern: 'not(diff[7])'
+    type: 'output',
+    testCases: [
+      // CO2 at 3%, threshold 5% -> scrubber OFF
+      { inputs: { co2_level: 3, threshold: 5 }, expectedOutputs: { scrubber_on: 0 } },
+      // CO2 at 6%, threshold 5% -> scrubber ON
+      { inputs: { co2_level: 6, threshold: 5 }, expectedOutputs: { scrubber_on: 1 } },
+      // CO2 at 5%, threshold 5% -> scrubber ON (at threshold)
+      { inputs: { co2_level: 5, threshold: 5 }, expectedOutputs: { scrubber_on: 1 } },
+    ]
   }
 }
 
@@ -77,9 +86,13 @@ const solarController: Puzzle = {
 plus 1. The carry-in to the adder should be 1, not 0.
 A - B = A + (~B) + 1`,
   validation: {
-    type: 'pattern',
-    // Pattern: must use carry-in = 1 for proper subtraction
-    pattern: 'not8(threshold), 1)'
+    type: 'output',
+    testCases: [
+      // Use smaller values so result fits in signed 8-bit range
+      { inputs: { light_level: 100, threshold: 50 }, expectedOutputs: { charge_enable: 1 } },
+      { inputs: { light_level: 50, threshold: 100 }, expectedOutputs: { charge_enable: 0 } },
+      { inputs: { light_level: 75, threshold: 75 }, expectedOutputs: { charge_enable: 1 } },
+    ]
   }
 }
 
@@ -103,9 +116,12 @@ const batteryMonitor: Puzzle = {
 ADC needs time to settle. Add a delay between the read strobe and
 the latch clock.`,
   validation: {
-    type: 'pattern',
-    // Pattern: must have second delay stage dff8(stage1
-    pattern: 'dff8(stage1'
+    type: 'output',
+    testCases: [
+      // After 3 cycles, level should equal input adc_data
+      { inputs: { adc_data: 0xB8, clk: 1 }, expectedOutputs: { level: 0xB8 }, cycles: 5 },
+      { inputs: { adc_data: 0x55, clk: 1 }, expectedOutputs: { level: 0x55 }, cycles: 5 },
+    ]
   }
 }
 
@@ -131,9 +147,11 @@ const flashController: Puzzle = {
 cycles to output valid data. The current design only holds it for 1
 cycle.`,
   validation: {
-    type: 'pattern',
-    // Pattern: must have second delay stage dff(read_delay1
-    pattern: 'dff(read_delay1'
+    type: 'output',
+    testCases: [
+      // Valid should be 1 after read strobe is held
+      { inputs: { addr: 0, read_en: 1, clk: 1 }, expectedOutputs: { valid: 1 }, cycles: 5 },
+    ]
   }
 }
 
