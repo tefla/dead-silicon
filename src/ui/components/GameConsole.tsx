@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useCPUSimulation } from '../../game/useCPUSimulation'
+import { useGameStore } from '../../game/useGameStore'
+import { validatePuzzle } from '../../game/validator'
+import { gameFiles } from '../../game/files'
 
 export function GameConsole() {
   const [input, setInput] = useState('')
@@ -7,21 +10,30 @@ export function GameConsole() {
   const currentLineRef = useRef('')
   const consoleRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const [, forceUpdate] = useState(0) // Force re-render on line updates
+  const [, forceUpdate] = useState(0)
 
-  // Handle character output from CPU - use ref to avoid stale closures
+  const {
+    activeFile,
+    editorContent,
+    solvePuzzle,
+  } = useGameStore()
+
+  // Add a line to output
+  const addLine = useCallback((text: string) => {
+    setOutputLines(prev => [...prev, text])
+  }, [])
+
+  // Handle character output from CPU
   const handleOutput = useCallback((char: string) => {
     if (char === '\n') {
-      // Complete the current line and add to output
       const line = currentLineRef.current
       currentLineRef.current = ''
       setOutputLines(prev => [...prev, line])
     } else if (char === '\r') {
       // Ignore carriage returns
     } else {
-      // Append character to current line
       currentLineRef.current += char
-      forceUpdate(n => n + 1) // Trigger re-render to show current line
+      forceUpdate(n => n + 1)
     }
   }, [])
 
@@ -31,6 +43,53 @@ export function GameConsole() {
     autoStart: true,
     cyclesPerFrame: 500,
   })
+
+  // Handle flash command - intercept and validate with editor content
+  const handleFlash = useCallback((filename: string) => {
+    const file = gameFiles[filename]
+    if (!file) {
+      addLine(`flash: file not found: ${filename}`)
+      addLine('$')
+      return
+    }
+
+    if (!file.puzzleId) {
+      addLine(`flash: ${filename} is not a flashable circuit`)
+      addLine('$')
+      return
+    }
+
+    // Get the current editor content for this file
+    const code = activeFile === filename ? editorContent : file.content
+
+    addLine(`Compiling ${filename}...`)
+
+    // Validate the fix using WASM simulator
+    const result = validatePuzzle(file.puzzleId, code)
+
+    if (result.success) {
+      addLine('OK')
+      addLine('Flashing to EEPROM... OK')
+      addLine('System reboot in 3... 2... 1...')
+      addLine('')
+      addLine('Circuit repaired successfully!')
+      addLine('$')
+      // Mark puzzle as solved
+      setTimeout(() => {
+        solvePuzzle(file.puzzleId!)
+      }, 500)
+    } else {
+      addLine('FAIL')
+      addLine('')
+      addLine(result.message)
+      if (result.details) {
+        addLine(result.details)
+      }
+      addLine('')
+      addLine('The fix was not successful. Check your changes.')
+      addLine('$')
+    }
+  }, [activeFile, editorContent, addLine, solvePuzzle])
 
   // Auto-scroll to bottom when output changes
   useEffect(() => {
@@ -47,12 +106,28 @@ export function GameConsole() {
   // Handle form submission
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (input.trim()) {
-      // Send input to CPU with newline
-      cpu.sendInput(input + '\n')
+    const cmd = input.trim()
+
+    if (cmd) {
+      // Check if this is a flash command - intercept it
+      if (cmd.startsWith('flash ') || cmd === 'flash') {
+        const filename = cmd.slice(6).trim()
+        // Echo the command
+        addLine(`> ${cmd}`)
+        if (!filename) {
+          addLine('Usage: flash <filename>')
+          addLine('$')
+        } else {
+          handleFlash(filename)
+        }
+        setInput('')
+        return
+      }
+
+      // All other commands go to CPU
+      cpu.sendInput(cmd + '\n')
       setInput('')
     } else {
-      // Empty enter - just send newline
       cpu.sendInput('\n')
     }
   }
