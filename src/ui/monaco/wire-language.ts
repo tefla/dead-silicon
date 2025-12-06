@@ -1,36 +1,56 @@
 import * as monaco from 'monaco-editor'
 
+// Wire HDL built-in primitives and common modules
+const PRIMITIVES = ['nand', 'dff', 'concat']
+const KEYWORDS = ['module']
+
 export function registerWireLanguage() {
   // Register the language
   monaco.languages.register({ id: 'wire' })
 
   // Set the token provider
   monaco.languages.setMonarchTokensProvider('wire', {
-    keywords: ['module'],
-    operators: ['->', ':', '=', ',', '(', ')', '[', ']', '.'],
+    keywords: KEYWORDS,
+    primitives: PRIMITIVES,
 
     tokenizer: {
       root: [
-        // Comments
+        // Comments (semicolon style)
         [/;.*$/, 'comment'],
 
         // Module keyword
         [/\bmodule\b/, 'keyword'],
 
-        // Identifiers
-        [/[a-z_][a-zA-Z0-9_]*/, 'identifier'],
+        // Primitives (nand, dff, concat)
+        [/\b(nand|dff|concat)\b/, 'keyword.primitive'],
+
+        // Bus width specifier :8, :16, etc
+        [/:(\d+)/, 'type.size'],
+
+        // Arrow operator
+        [/->/, 'keyword.operator'],
 
         // Numbers
-        [/[0-9]+/, 'number'],
+        [/\b\d+\b/, 'number'],
 
-        // Operators
-        [/->/, 'keyword.operator'],
-        [/:/, 'type.delimiter'],
-        [/=/, 'operator'],
-        [/[(),\[\].]/, 'delimiter'],
+        // Identifiers (must come after keywords/primitives)
+        [/[a-zA-Z_][a-zA-Z0-9_]*/, 'identifier'],
+
+        // Bus index [0], [7:0]
+        [/\[/, 'delimiter.bracket', '@busIndex'],
+
+        // Other operators and delimiters
+        [/[=()]/, 'delimiter'],
+        [/[,.]/, 'delimiter'],
 
         // Whitespace
         [/\s+/, 'white'],
+      ],
+
+      busIndex: [
+        [/\d+/, 'number'],
+        [/:/, 'delimiter'],
+        [/\]/, 'delimiter.bracket', '@pop'],
       ],
     },
   })
@@ -52,5 +72,9 @@ export function registerWireLanguage() {
       { open: '(', close: ')' },
       { open: '[', close: ']' },
     ],
+    indentationRules: {
+      increaseIndentPattern: /:\s*$/,
+      decreaseIndentPattern: /^\s*$/,
+    },
   })
 }

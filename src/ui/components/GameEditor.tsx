@@ -4,8 +4,24 @@ import { gameFiles } from '../../game/files'
 import { puzzles } from '../../game/puzzles'
 import { quickCheck } from '../../game/validator'
 import { AlertCircle, Check, FileCode, Zap } from 'lucide-react'
-import Editor, { type OnMount } from '@monaco-editor/react'
+import Editor, { type OnMount, loader } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
+import { registerWireLanguage } from '../monaco/wire-language'
+import { registerPulseLanguage } from '../monaco/pulse-language'
+import { registerVSCodeTheme } from '../monaco/themes'
+
+// Track if languages have been registered
+let languagesRegistered = false
+
+// Register languages before Monaco loads
+loader.init().then((monaco) => {
+  if (!languagesRegistered) {
+    registerWireLanguage()
+    registerPulseLanguage()
+    registerVSCodeTheme()
+    languagesRegistered = true
+  }
+})
 
 export function GameEditor() {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
@@ -94,8 +110,8 @@ export function GameEditor() {
       <div className="flex-1">
         <Editor
           height="100%"
-          language="rust"  // Wire syntax is similar to Rust
-          theme="vs-dark"
+          language={activeFile?.endsWith('.pulse') ? 'pulse' : 'wire'}
+          theme="vscode-dark-custom"
           value={editorContent || file.content}
           onChange={handleChange}
           onMount={handleEditorMount}

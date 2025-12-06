@@ -1,15 +1,28 @@
 import * as monaco from 'monaco-editor'
 
+// 6502-style mnemonics supported by our CPU
 const MNEMONICS = [
+  // Load/Store
   'LDA', 'LDX', 'LDY', 'STA', 'STX', 'STY',
+  // Arithmetic
   'ADC', 'SBC', 'AND', 'ORA', 'EOR',
+  // Compare
   'CMP', 'CPX', 'CPY',
-  'JMP', 'JSR', 'RTS', 'BEQ', 'BNE', 'BCC', 'BCS',
-  'INX', 'INY', 'DEX', 'DEY',
+  // Branch/Jump
+  'JMP', 'JSR', 'RTS', 'RTI',
+  'BEQ', 'BNE', 'BCC', 'BCS', 'BMI', 'BPL', 'BVC', 'BVS',
+  // Increment/Decrement
+  'INC', 'INX', 'INY', 'DEC', 'DEX', 'DEY',
+  // Transfer
   'TAX', 'TAY', 'TXA', 'TYA', 'TXS', 'TSX',
+  // Stack
   'PHA', 'PLA', 'PHP', 'PLP',
-  'SEC', 'CLC', 'SEI', 'CLI',
-  'NOP', 'BRK', 'HLT',
+  // Flags
+  'SEC', 'CLC', 'SEI', 'CLI', 'SED', 'CLD', 'CLV',
+  // Shift/Rotate
+  'ASL', 'LSR', 'ROL', 'ROR',
+  // Other
+  'NOP', 'BRK', 'HLT', 'BIT',
 ]
 
 export function registerPulseLanguage() {
@@ -19,44 +32,51 @@ export function registerPulseLanguage() {
   // Set the token provider
   monaco.languages.setMonarchTokensProvider('pulse', {
     keywords: MNEMONICS,
-    directives: ['.org', '.word', '.byte', '.db'],
+    ignoreCase: false,
 
     tokenizer: {
       root: [
-        // Comments
+        // Comments (semicolon style)
         [/;.*$/, 'comment'],
 
-        // Directives
-        [/\.[a-z]+/, 'keyword.directive'],
+        // Directives (.org, .byte, .word, .text, .define)
+        [/\.(org|byte|word|db|dw|text|ascii|asciiz|define|equ)\b/, 'keyword.directive'],
 
-        // Labels (identifier followed by colon)
-        [/[a-z_][a-zA-Z0-9_]*:/, 'type.identifier'],
+        // Labels (identifier followed by colon, NOT on same line as instruction)
+        [/^[a-zA-Z_][a-zA-Z0-9_]*:/, 'type.identifier'],
 
-        // Mnemonics (uppercase 3-letter words)
-        [/[A-Z]{3}\b/, {
+        // Mnemonics (3-letter uppercase words)
+        [/\b[A-Z]{3}\b/, {
           cases: {
-            '@keywords': 'keyword',
+            '@keywords': 'keyword.mnemonic',
             '@default': 'identifier',
           },
         }],
 
-        // Immediate hex (#$FF)
+        // Immediate hex (#$FF or #$FFFF)
         [/#\$[0-9A-Fa-f]+/, 'number.hex'],
 
         // Immediate decimal (#123)
-        [/#[0-9]+/, 'number'],
+        [/#\d+/, 'number'],
 
-        // Address/value hex ($F030)
+        // Address/value hex ($F000)
         [/\$[0-9A-Fa-f]+/, 'number.hex'],
 
-        // Identifiers
-        [/[a-zA-Z_][a-zA-Z0-9_]*/, 'identifier'],
+        // Binary (%10101010)
+        [/%[01]+/, 'number.binary'],
 
-        // Numbers
-        [/[0-9]+/, 'number'],
+        // Label references (identifiers used as operands)
+        [/[a-zA-Z_][a-zA-Z0-9_]*/, 'variable.name'],
 
-        // Operators
-        [/[=,]/, 'delimiter'],
+        // Decimal numbers
+        [/\d+/, 'number'],
+
+        // Indexing (,X or ,Y)
+        [/,[XY]\b/, 'keyword.register'],
+
+        // Operators and delimiters
+        [/[=,+\-*\/]/, 'delimiter'],
+        [/[()]/, 'delimiter.parenthesis'],
 
         // Whitespace
         [/\s+/, 'white'],
@@ -69,5 +89,11 @@ export function registerPulseLanguage() {
     comments: {
       lineComment: ';',
     },
+    brackets: [
+      ['(', ')'],
+    ],
+    autoClosingPairs: [
+      { open: '(', close: ')' },
+    ],
   })
 }
