@@ -1,10 +1,13 @@
 ; Instruction Decoder for Minimal CPU
-; Decodes opcodes into control signals for 28 instructions
+; Decodes opcodes into control signals for 34 instructions
 ;
 ; Opcodes (authentic 6502):
 ;   0xA9 = LDA #imm (2 bytes) = 10101001
+;   0xAD = LDA $addr (3 bytes) = 10101101
 ;   0xA2 = LDX #imm (2 bytes) = 10100010
+;   0xAE = LDX $addr (3 bytes) = 10101110
 ;   0xA0 = LDY #imm (2 bytes) = 10100000
+;   0xAC = LDY $addr (3 bytes) = 10101100
 ;   0x69 = ADC #imm (2 bytes) = 01101001
 ;   0xE9 = SBC #imm (2 bytes) = 11101001
 ;   0xC9 = CMP #imm (2 bytes) = 11001001
@@ -29,6 +32,9 @@
 ;   0x98 = TYA (1 byte) = 10011000
 ;   0x48 = PHA (1 byte) = 01001000
 ;   0x68 = PLA (1 byte) = 01101000
+;   0x9A = TXS (1 byte) = 10011010
+;   0x18 = CLC (1 byte) = 00011000
+;   0x38 = SEC (1 byte) = 00111000
 ;   0x02 = HLT (1 byte) = 00000010
 ;
 ; Inputs:
@@ -36,8 +42,11 @@
 ;
 ; Outputs:
 ;   is_lda    - Opcode is LDA #imm
+;   is_lda_abs - Opcode is LDA $addr
 ;   is_ldx    - Opcode is LDX #imm
+;   is_ldx_abs - Opcode is LDX $addr
 ;   is_ldy    - Opcode is LDY #imm
+;   is_ldy_abs - Opcode is LDY $addr
 ;   is_adc    - Opcode is ADC #imm
 ;   is_sbc    - Opcode is SBC #imm
 ;   is_cmp    - Opcode is CMP #imm
@@ -62,13 +71,16 @@
 ;   is_pla    - Opcode is PLA
 ;   is_jsr    - Opcode is JSR
 ;   is_rts    - Opcode is RTS
+;   is_txs    - Opcode is TXS
+;   is_clc    - Opcode is CLC
+;   is_sec    - Opcode is SEC
 ;   is_hlt    - Opcode is HLT
 ;   needs_imm - Instruction needs immediate operand (1 byte)
 ;   needs_addr - Instruction needs address operand (2 bytes)
 ;   needs_rel - Instruction needs relative offset (1 signed byte)
 ;   is_implied - Instruction has no operand (1 byte total)
 
-module decoder(opcode:8) -> (is_lda, is_ldx, is_ldy, is_adc, is_sbc, is_cmp, is_and, is_ora, is_eor, is_sta, is_stx, is_sty, is_jmp, is_jsr, is_rts, is_beq, is_bne, is_inx, is_dex, is_iny, is_dey, is_tax, is_tay, is_txa, is_tya, is_pha, is_pla, is_hlt, needs_imm, needs_addr, needs_rel, is_implied):
+module decoder(opcode:8) -> (is_lda, is_lda_abs, is_ldx, is_ldx_abs, is_ldy, is_ldy_abs, is_adc, is_sbc, is_cmp, is_and, is_ora, is_eor, is_sta, is_stx, is_sty, is_jmp, is_jsr, is_rts, is_beq, is_bne, is_inx, is_dex, is_iny, is_dey, is_tax, is_tay, is_txa, is_tya, is_pha, is_pla, is_txs, is_clc, is_sec, is_hlt, needs_imm, needs_addr, needs_rel, needs_load_addr, is_implied):
   ; We need to compare opcode with specific values
   ; XOR with target: if match, all bits will be 0
   ; Then NOR-reduce to check if all bits are 0
@@ -609,22 +621,142 @@ module decoder(opcode:8) -> (is_lda, is_ldx, is_ldy, is_adc, is_sbc, is_cmp, is_
   rts_any = or(rts_any0123, rts_any4567)
   is_rts = not(rts_any)
 
+  ; LDA abs = 0xAD = 10101101 binary
+  ; opcode[0]=1, [1]=0, [2]=1, [3]=1, [4]=0, [5]=1, [6]=0, [7]=1
+  lda_abs_b0 = xor(opcode[0], 1)
+  lda_abs_b1 = xor(opcode[1], 0)
+  lda_abs_b2 = xor(opcode[2], 1)
+  lda_abs_b3 = xor(opcode[3], 1)
+  lda_abs_b4 = xor(opcode[4], 0)
+  lda_abs_b5 = xor(opcode[5], 1)
+  lda_abs_b6 = xor(opcode[6], 0)
+  lda_abs_b7 = xor(opcode[7], 1)
+  lda_abs_any01 = or(lda_abs_b0, lda_abs_b1)
+  lda_abs_any23 = or(lda_abs_b2, lda_abs_b3)
+  lda_abs_any45 = or(lda_abs_b4, lda_abs_b5)
+  lda_abs_any67 = or(lda_abs_b6, lda_abs_b7)
+  lda_abs_any0123 = or(lda_abs_any01, lda_abs_any23)
+  lda_abs_any4567 = or(lda_abs_any45, lda_abs_any67)
+  lda_abs_any = or(lda_abs_any0123, lda_abs_any4567)
+  is_lda_abs = not(lda_abs_any)
+
+  ; LDX abs = 0xAE = 10101110 binary
+  ; opcode[0]=0, [1]=1, [2]=1, [3]=1, [4]=0, [5]=1, [6]=0, [7]=1
+  ldx_abs_b0 = xor(opcode[0], 0)
+  ldx_abs_b1 = xor(opcode[1], 1)
+  ldx_abs_b2 = xor(opcode[2], 1)
+  ldx_abs_b3 = xor(opcode[3], 1)
+  ldx_abs_b4 = xor(opcode[4], 0)
+  ldx_abs_b5 = xor(opcode[5], 1)
+  ldx_abs_b6 = xor(opcode[6], 0)
+  ldx_abs_b7 = xor(opcode[7], 1)
+  ldx_abs_any01 = or(ldx_abs_b0, ldx_abs_b1)
+  ldx_abs_any23 = or(ldx_abs_b2, ldx_abs_b3)
+  ldx_abs_any45 = or(ldx_abs_b4, ldx_abs_b5)
+  ldx_abs_any67 = or(ldx_abs_b6, ldx_abs_b7)
+  ldx_abs_any0123 = or(ldx_abs_any01, ldx_abs_any23)
+  ldx_abs_any4567 = or(ldx_abs_any45, ldx_abs_any67)
+  ldx_abs_any = or(ldx_abs_any0123, ldx_abs_any4567)
+  is_ldx_abs = not(ldx_abs_any)
+
+  ; LDY abs = 0xAC = 10101100 binary
+  ; opcode[0]=0, [1]=0, [2]=1, [3]=1, [4]=0, [5]=1, [6]=0, [7]=1
+  ldy_abs_b0 = xor(opcode[0], 0)
+  ldy_abs_b1 = xor(opcode[1], 0)
+  ldy_abs_b2 = xor(opcode[2], 1)
+  ldy_abs_b3 = xor(opcode[3], 1)
+  ldy_abs_b4 = xor(opcode[4], 0)
+  ldy_abs_b5 = xor(opcode[5], 1)
+  ldy_abs_b6 = xor(opcode[6], 0)
+  ldy_abs_b7 = xor(opcode[7], 1)
+  ldy_abs_any01 = or(ldy_abs_b0, ldy_abs_b1)
+  ldy_abs_any23 = or(ldy_abs_b2, ldy_abs_b3)
+  ldy_abs_any45 = or(ldy_abs_b4, ldy_abs_b5)
+  ldy_abs_any67 = or(ldy_abs_b6, ldy_abs_b7)
+  ldy_abs_any0123 = or(ldy_abs_any01, ldy_abs_any23)
+  ldy_abs_any4567 = or(ldy_abs_any45, ldy_abs_any67)
+  ldy_abs_any = or(ldy_abs_any0123, ldy_abs_any4567)
+  is_ldy_abs = not(ldy_abs_any)
+
+  ; TXS = 0x9A = 10011010 binary
+  ; opcode[0]=0, [1]=1, [2]=0, [3]=1, [4]=1, [5]=0, [6]=0, [7]=1
+  txs_b0 = xor(opcode[0], 0)
+  txs_b1 = xor(opcode[1], 1)
+  txs_b2 = xor(opcode[2], 0)
+  txs_b3 = xor(opcode[3], 1)
+  txs_b4 = xor(opcode[4], 1)
+  txs_b5 = xor(opcode[5], 0)
+  txs_b6 = xor(opcode[6], 0)
+  txs_b7 = xor(opcode[7], 1)
+  txs_any01 = or(txs_b0, txs_b1)
+  txs_any23 = or(txs_b2, txs_b3)
+  txs_any45 = or(txs_b4, txs_b5)
+  txs_any67 = or(txs_b6, txs_b7)
+  txs_any0123 = or(txs_any01, txs_any23)
+  txs_any4567 = or(txs_any45, txs_any67)
+  txs_any = or(txs_any0123, txs_any4567)
+  is_txs = not(txs_any)
+
+  ; CLC = 0x18 = 00011000 binary
+  ; opcode[0]=0, [1]=0, [2]=0, [3]=1, [4]=1, [5]=0, [6]=0, [7]=0
+  clc_b0 = xor(opcode[0], 0)
+  clc_b1 = xor(opcode[1], 0)
+  clc_b2 = xor(opcode[2], 0)
+  clc_b3 = xor(opcode[3], 1)
+  clc_b4 = xor(opcode[4], 1)
+  clc_b5 = xor(opcode[5], 0)
+  clc_b6 = xor(opcode[6], 0)
+  clc_b7 = xor(opcode[7], 0)
+  clc_any01 = or(clc_b0, clc_b1)
+  clc_any23 = or(clc_b2, clc_b3)
+  clc_any45 = or(clc_b4, clc_b5)
+  clc_any67 = or(clc_b6, clc_b7)
+  clc_any0123 = or(clc_any01, clc_any23)
+  clc_any4567 = or(clc_any45, clc_any67)
+  clc_any = or(clc_any0123, clc_any4567)
+  is_clc = not(clc_any)
+
+  ; SEC = 0x38 = 00111000 binary
+  ; opcode[0]=0, [1]=0, [2]=0, [3]=1, [4]=1, [5]=1, [6]=0, [7]=0
+  sec_b0 = xor(opcode[0], 0)
+  sec_b1 = xor(opcode[1], 0)
+  sec_b2 = xor(opcode[2], 0)
+  sec_b3 = xor(opcode[3], 1)
+  sec_b4 = xor(opcode[4], 1)
+  sec_b5 = xor(opcode[5], 1)
+  sec_b6 = xor(opcode[6], 0)
+  sec_b7 = xor(opcode[7], 0)
+  sec_any01 = or(sec_b0, sec_b1)
+  sec_any23 = or(sec_b2, sec_b3)
+  sec_any45 = or(sec_b4, sec_b5)
+  sec_any67 = or(sec_b6, sec_b7)
+  sec_any0123 = or(sec_any01, sec_any23)
+  sec_any4567 = or(sec_any45, sec_any67)
+  sec_any = or(sec_any0123, sec_any4567)
+  is_sec = not(sec_any)
+
   ; needs_imm: LDA, LDX, LDY, ADC, SBC, CMP, AND, ORA, EOR need immediate byte
   is_logic_op = or(or(is_and, is_ora), is_eor)
   is_load_imm = or(or(is_lda, is_ldx), is_ldy)
   needs_imm = or(or(or(or(is_load_imm, is_adc), is_sbc), is_cmp), is_logic_op)
 
-  ; needs_addr: STA, STX, STY, JMP, and JSR need 16-bit address
+  ; needs_addr: STA, STX, STY, JMP, and JSR need 16-bit address (for writes/jumps)
   is_store = or(or(is_sta, is_stx), is_sty)
   is_jump_or_call = or(is_jmp, is_jsr)
   needs_addr = or(is_store, is_jump_or_call)
 
+  ; needs_load_addr: LDA abs, LDX abs, LDY abs need 16-bit address (for reads)
+  is_load_abs = or(or(is_lda_abs, is_ldx_abs), is_ldy_abs)
+  needs_load_addr = is_load_abs
+
   ; needs_rel: BEQ and BNE need relative offset (1 signed byte)
   needs_rel = or(is_beq, is_bne)
 
-  ; is_implied: HLT, INX, DEX, INY, DEY, TAX, TAY, TXA, TYA, PHA, PLA, RTS have no operand
+  ; is_implied: HLT, INX, DEX, INY, DEY, TAX, TAY, TXA, TYA, PHA, PLA, RTS, TXS, CLC, SEC have no operand
   is_inc_dec_x = or(is_inx, is_dex)
   is_inc_dec_y = or(is_iny, is_dey)
   is_transfer = or(or(is_tax, is_tay), or(is_txa, is_tya))
   is_stack = or(is_pha, is_pla)
-  is_implied = or(or(or(or(or(is_hlt, is_inc_dec_x), is_inc_dec_y), is_transfer), is_stack), is_rts)
+  is_flag_op = or(is_clc, is_sec)
+  is_implied_basic = or(or(or(or(or(is_hlt, is_inc_dec_x), is_inc_dec_y), is_transfer), is_stack), is_rts)
+  is_implied = or(or(is_implied_basic, is_txs), is_flag_op)

@@ -892,11 +892,31 @@ function flattenModule(
 
                     // Pre-map the submodule's internal wire to our target wire
                     // This ensures the submodule's producer node writes to our wire
-                    if (targetWire !== undefined) {
-                        const theirWireName = `${subPrefix}.${resolved}`
+                    // BUT: if the resolved wire is an INPUT that was already mapped,
+                    // use the input's wire (don't overwrite the input mapping!)
+                    const theirWireName = `${subPrefix}.${resolved}`
+                    const theirOutputName = `${subPrefix}.${outputName}`
+
+                    // Check if resolved name is an input of the submodule
+                    const isInputAlias = subModule.inputs.some(inp => inp.name === resolved)
+
+                    if (isInputAlias && wireNames.has(theirWireName)) {
+                        // Output is aliased to an input - use the input's wire
+                        // This handles: x = b (output x aliases to input b)
+                        const inputWire = wireNames.get(theirWireName)!
+                        wireNames.set(theirOutputName, inputWire)
+
+                        // Map our field access wires to the input wire
+                        const ourFieldWire = prefix ? `${prefix}.${baseOutput}.${outputName}` : `${baseOutput}.${outputName}`
+                        wireNames.set(ourFieldWire, inputWire)
+
+                        // For the first output, also map the direct output name
+                        if (i === 0) {
+                            const ourDirectWire = prefix ? `${prefix}.${baseOutput}` : baseOutput
+                            wireNames.set(ourDirectWire, inputWire)
+                        }
+                    } else if (targetWire !== undefined) {
                         wireNames.set(theirWireName, targetWire)
-                        // Also map the output name directly
-                        const theirOutputName = `${subPrefix}.${outputName}`
                         wireNames.set(theirOutputName, targetWire)
 
                         // Also map using the baseOutput name (which is what resolveWire will look for)

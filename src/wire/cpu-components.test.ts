@@ -4,9 +4,9 @@
 import { describe, it, expect } from 'vitest'
 import { createSimulator as createSimulatorBase } from './simulator'
 
-// Use WASM strategy for faster tests (interpreter is too slow for CPU-scale circuits)
+// Use WASM simulator (the only option - no interpreter)
 const createSimulator = (source: string, mainModule?: string) =>
-  createSimulatorBase(source, mainModule, 'wasm')
+  createSimulatorBase(source, mainModule)
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 

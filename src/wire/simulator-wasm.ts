@@ -567,11 +567,73 @@ export class WASMSimulator implements ISimulator {
     step(): void {
         if (!this.wasmComb || !this.wasmEdge || !this.values || !this.prevValues) return
 
-        // 1. Evaluate combinational logic until stable (for feedback loops)
         const maxIterations = 20
+
+        // Helper: evaluate ROM nodes (async read - output always reflects current address)
+        const evaluateRom = () => {
+            for (const rom of this.sortResult.memoryNodes) {
+                if (rom.type !== 'rom') continue
+                const romData = this.romData.get(rom.id)
+                if (!romData) continue
+
+                const addr = this.values![rom.inputs[0]]
+                const output = addr < romData.length ? romData[addr] : 0
+                this.values![rom.outputs[0]] = output
+            }
+        }
+
+        // Helper: evaluate RAM reads (async read - output always reflects current address)
+        const evaluateRamReads = () => {
+            for (const ram of this.sortResult.memoryNodes) {
+                if (ram.type !== 'ram') continue
+                const ramData = this.ramState.get(ram.id)
+                if (!ramData) continue
+
+                const addr = this.values![ram.inputs[0]]
+                const output = addr < ramData.length ? ramData[addr] : 0
+                this.values![ram.outputs[0]] = output
+            }
+        }
+
+        // Helper: handle RAM writes on rising clock edge
+        const evaluateRamWrites = () => {
+            for (const ram of this.sortResult.memoryNodes) {
+                if (ram.type !== 'ram') continue
+                const ramData = this.ramState.get(ram.id)
+                if (!ramData) continue
+
+                const addr = this.values![ram.inputs[0]]
+                const data = this.values![ram.inputs[1]]
+                const write = this.values![ram.inputs[2]]
+                const clk = this.values![ram.inputs[3]]
+                const prevClk = this.ramPrevClock.get(ram.id) ?? 0
+
+                // Write on rising clock edge when write is high
+                if (prevClk === 0 && clk === 1 && write === 1) {
+                    if (addr < ramData.length) {
+                        ramData[addr] = data & 0xFF
+                    }
+                }
+
+                // Update previous clock
+                this.ramPrevClock.set(ram.id, clk)
+
+                // Output is always the value at the address (async read)
+                const output = addr < ramData.length ? ramData[addr] : 0
+                this.values![ram.outputs[0]] = output
+            }
+        }
+
+        // 1. Evaluate combinational logic until stable (for feedback loops)
         for (let i = 0; i < maxIterations; i++) {
             // Copy current values to pre-allocated buffer
             this.prevValues.set(this.values)
+
+            // Evaluate ROM/RAM reads first (they provide values to combinational logic)
+            evaluateRom()
+            evaluateRamReads()
+
+            // Run WASM combinational evaluation
             this.wasmComb()
 
             // Check if values changed
@@ -585,13 +647,18 @@ export class WASMSimulator implements ISimulator {
             if (!changed) break
         }
 
-        // 2. Handle clock edges (in WASM)
+        // 2. Handle clock edges (DFFs in WASM)
         const needsReevaluate = this.wasmEdge()
 
-        // 3. Re-evaluate combinational logic until stable
+        // 3. Handle RAM writes (on rising clock edge)
+        evaluateRamWrites()
+
+        // 4. Re-evaluate combinational logic until stable
         if (needsReevaluate) {
             for (let i = 0; i < maxIterations; i++) {
                 this.prevValues.set(this.values)
+                evaluateRom()
+                evaluateRamReads()
                 this.wasmComb()
 
                 let changed = false

@@ -30,8 +30,8 @@ export function validatePuzzle(
   // Prepend stdlib so puzzle code can use dff8, adder8, etc.
   const fullCode = stdlib + '\n' + playerCode
 
-  // Create simulator with WASM strategy for speed
-  const sim = createSimulator(fullCode, undefined, 'wasm')
+  // Create simulator (WASM only)
+  const sim = createSimulator(fullCode)
 
   if (!sim.ok) {
     return {
@@ -108,7 +108,7 @@ function validateOutputTests(
  */
 export function quickCheck(playerCode: string): { ok: boolean; error?: string } {
   const fullCode = stdlib + '\n' + playerCode
-  const sim = createSimulator(fullCode, undefined, 'wasm')
+  const sim = createSimulator(fullCode)
   if (sim.ok) {
     return { ok: true }
   }

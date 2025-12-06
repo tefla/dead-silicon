@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createSimulator, Simulator } from './simulator'
+import { createSimulator } from './simulator'
 import { resetNodeCounter } from './compiler'
 
 beforeEach(() => {

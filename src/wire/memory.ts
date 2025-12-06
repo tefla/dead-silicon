@@ -1,5 +1,5 @@
-// FPGA Memory Map
-// Defines address ranges and I/O ports
+// Memory Map and I/O Ports for CPU simulation
+// Defines address ranges and I/O ports used by cpu_minimal.wire
 
 export const MEMORY_MAP = {
   // RAM regions

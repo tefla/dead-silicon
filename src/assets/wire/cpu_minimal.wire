@@ -1,12 +1,12 @@
-; Minimal CPU - 28 Instruction CPU with State Machine
-; Implements: LDA #imm, LDX #imm, LDY #imm, ADC #imm, SBC #imm, CMP #imm, AND #imm, ORA #imm, EOR #imm, STA $addr, STX $addr, STY $addr, JMP $addr, JSR $addr, RTS, BEQ rel, BNE rel, INX, DEX, INY, DEY, TAX, TAY, TXA, TYA, PHA, PLA, HLT
+; Minimal CPU - 34 Instruction CPU with State Machine
+; Implements: LDA #imm, LDA $addr, LDX #imm, LDX $addr, LDY #imm, LDY $addr, ADC #imm, SBC #imm, CMP #imm, AND #imm, ORA #imm, EOR #imm, STA $addr, STX $addr, STY $addr, JMP $addr, JSR $addr, RTS, BEQ rel, BNE rel, INX, DEX, INY, DEY, TAX, TAY, TXA, TYA, PHA, PLA, TXS, CLC, SEC, HLT
 ;
-; State Machine (5 bits, 20 states):
+; State Machine (5 bits, 24 states):
 ;   STATE_FETCH_OP  (0)  - Fetch opcode, increment PC
 ;   STATE_DECODE    (1)  - Decode opcode, determine next state
 ;   STATE_FETCH_IMM (2)  - Fetch immediate value (LDA)
-;   STATE_FETCH_LO  (3)  - Fetch address low byte (STA/JMP/JSR)
-;   STATE_FETCH_HI  (4)  - Fetch address high byte (STA/JMP/JSR)
+;   STATE_FETCH_LO  (3)  - Fetch address low byte (STA/JMP/JSR/LDA abs)
+;   STATE_FETCH_HI  (4)  - Fetch address high byte (STA/JMP/JSR/LDA abs)
 ;   STATE_EXEC_ST   (5)  - Execute STA/STX (write to memory)
 ;   STATE_EXEC_JMP  (6)  - Execute JMP (load PC)
 ;   STATE_HALTED    (7)  - CPU halted
@@ -25,6 +25,7 @@
 ;   STATE_RESET_LO    (20) - Reset: Read low byte from $FFFC
 ;   STATE_RESET_HI    (21) - Reset: Read high byte from $FFFD
 ;   STATE_RESET_DONE  (22) - Reset: Load PC from reset vector
+;   STATE_EXEC_LOAD   (23) - Execute LDA/LDX/LDY abs (read from memory address)
 ;
 ; Inputs:
 ;   clk       - Clock signal
@@ -130,6 +131,9 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; is_state_22 = 10110 (RESET_DONE - load PC from reset vector)
   is_state_22 = and(and(and(and(state4, ns3), state2), state1), ns0)
 
+  ; is_state_23 = 10111 (EXEC_LOAD - read from memory for LDA/LDX/LDY abs)
+  is_state_23 = and(and(and(and(state4, ns3), state2), state1), state0)
+
   ; ==========================================
   ; Instruction Register
   ; ==========================================
@@ -182,6 +186,7 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; CMP sets flags like SBC but doesn't store result
   ; Load A during DECODE when instruction is TXA or TYA (implied addressing)
   ; Load A during PULL_READ (state 10) when instruction is PLA
+  ; Load A during EXEC_LOAD (state 23) when instruction is LDA abs
   is_arith_op = or(dec.is_adc, dec.is_sbc)
   is_logic_op = or(or(dec.is_and, dec.is_ora), dec.is_eor)
   is_alu_op = or(is_arith_op, is_logic_op)
@@ -190,13 +195,15 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   a_load_imm = and(is_state_2, or(dec.is_lda, is_alu_op))
   a_load_transfer = and(is_state_1, is_txa_tya)
   a_load_pla = is_state_10  ; PLA loads A from stack in state 10
-  a_load = or(or(a_load_imm, a_load_transfer), a_load_pla)
+  a_load_abs = and(is_state_23, dec.is_lda_abs)  ; LDA abs loads A in state 23
+  a_load = or(or(or(a_load_imm, a_load_transfer), a_load_pla), a_load_abs)
   ; Mux between data_in (for LDA), alu.result (for ADC/SBC/AND/ORA/EOR), X (for TXA), Y (for TYA)
   a_src_imm = mux8(data_in, alu.result, is_alu_op)
   a_src_xy = mux8(x_out, y_out, dec.is_tya)
   a_src_imm_or_xy = mux8(a_src_imm, a_src_xy, is_txa_tya)
-  ; For PLA (state 10), always use data_in directly
-  a_data_src = mux8(a_src_imm_or_xy, data_in, a_load_pla)
+  ; For PLA (state 10) and LDA abs (state 23), always use data_in directly
+  a_load_from_mem = or(a_load_pla, a_load_abs)
+  a_data_src = mux8(a_src_imm_or_xy, data_in, a_load_from_mem)
   a_out = register8(a_data_src, a_load, clk)
 
   ; ==========================================
@@ -204,11 +211,13 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; ==========================================
   ; Load X during FETCH_IMM when instruction is LDX
   ; Load X during DECODE when instruction is INX, DEX, or TAX (implied addressing)
+  ; Load X during EXEC_LOAD (state 23) when instruction is LDX abs
   is_inx_dex = or(dec.is_inx, dec.is_dex)
   x_load_ldx = and(is_state_2, dec.is_ldx)
   x_load_inx_dex = and(is_state_1, is_inx_dex)
   x_load_tax = and(is_state_1, dec.is_tax)
-  x_load = or(or(x_load_ldx, x_load_inx_dex), x_load_tax)
+  x_load_ldx_abs = and(is_state_23, dec.is_ldx_abs)  ; LDX abs loads X in state 23
+  x_load = or(or(or(x_load_ldx, x_load_inx_dex), x_load_tax), x_load_ldx_abs)
 
   ; Compute X+1 and X-1 for INX/DEX
   ; INX: X + 1 (use adder8 with b=1, cin=0)
@@ -219,9 +228,11 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   x_addend = mux8(inx_addend, dex_addend, dec.is_dex)
   x_inc_result = adder8(x_out, x_addend, 0)
 
-  ; Select source for X: data_in for LDX, x_inc_result for INX/DEX, a_out for TAX
+  ; Select source for X: data_in for LDX/LDX abs, x_inc_result for INX/DEX, a_out for TAX
+  x_load_from_mem = or(x_load_ldx, x_load_ldx_abs)
   x_src_ldx_or_inc = mux8(data_in, x_inc_result.sum, is_inx_dex)
-  x_data_src = mux8(x_src_ldx_or_inc, a_out, dec.is_tax)
+  x_src_with_abs = mux8(x_src_ldx_or_inc, data_in, x_load_ldx_abs)
+  x_data_src = mux8(x_src_with_abs, a_out, dec.is_tax)
   x_out = register8(x_data_src, x_load, clk)
 
   ; ==========================================
@@ -229,11 +240,13 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; ==========================================
   ; Load Y during FETCH_IMM when instruction is LDY
   ; Load Y during DECODE when instruction is INY, DEY, or TAY (implied addressing)
+  ; Load Y during EXEC_LOAD (state 23) when instruction is LDY abs
   is_iny_dey = or(dec.is_iny, dec.is_dey)
   y_load_ldy = and(is_state_2, dec.is_ldy)
   y_load_iny_dey = and(is_state_1, is_iny_dey)
   y_load_tay = and(is_state_1, dec.is_tay)
-  y_load = or(or(y_load_ldy, y_load_iny_dey), y_load_tay)
+  y_load_ldy_abs = and(is_state_23, dec.is_ldy_abs)  ; LDY abs loads Y in state 23
+  y_load = or(or(or(y_load_ldy, y_load_iny_dey), y_load_tay), y_load_ldy_abs)
 
   ; Compute Y+1 and Y-1 for INY/DEY
   iny_addend = concat(0, 0, 0, 0, 0, 0, 0, 1)  ; 0x01
@@ -241,9 +254,11 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   y_addend = mux8(iny_addend, dey_addend, dec.is_dey)
   y_inc_result = adder8(y_out, y_addend, 0)
 
-  ; Select source for Y: data_in for LDY, y_inc_result for INY/DEY, a_out for TAY
+  ; Select source for Y: data_in for LDY/LDY abs, y_inc_result for INY/DEY, a_out for TAY
+  y_load_from_mem = or(y_load_ldy, y_load_ldy_abs)
   y_src_ldy_or_inc = mux8(data_in, y_inc_result.sum, is_iny_dey)
-  y_data_src = mux8(y_src_ldy_or_inc, a_out, dec.is_tay)
+  y_src_with_abs = mux8(y_src_ldy_or_inc, data_in, y_load_ldy_abs)
+  y_data_src = mux8(y_src_with_abs, a_out, dec.is_tay)
   y_out = register8(y_data_src, y_load, clk)
 
   ; ==========================================
@@ -271,21 +286,25 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   sp_dec_result = adder8(sp_out, sp_dec_addend, 0)
 
   ; Load SP: decrement for push operations, increment for pull operations
+  ; Also load SP from X register for TXS instruction
   sp_load_pha_dec = is_state_11    ; PHA: decrement after push write
   sp_load_pla_inc = is_state_9     ; PLA: increment before pull read
   sp_load_jsr_dec1 = is_state_13   ; JSR: decrement after pushing high byte
   sp_load_jsr_dec2 = is_state_15   ; JSR: decrement after pushing low byte
   sp_load_rts_inc1 = is_state_16   ; RTS: increment before pulling low byte
   sp_load_rts_inc2 = is_state_18   ; RTS: increment before pulling high byte
+  sp_load_txs = and(is_state_1, dec.is_txs)  ; TXS: load SP from X in DECODE
 
   ; Combine all decrement operations
   sp_load_dec = or(or(sp_load_pha_dec, sp_load_jsr_dec1), sp_load_jsr_dec2)
   ; Combine all increment operations
   sp_load_inc = or(or(sp_load_pla_inc, sp_load_rts_inc1), sp_load_rts_inc2)
-  sp_load = or(sp_load_dec, sp_load_inc)
+  sp_load = or(or(sp_load_dec, sp_load_inc), sp_load_txs)
 
-  ; Select between increment and decrement
-  sp_next = mux8(sp_dec_result.sum, sp_inc_result.sum, sp_load_inc)
+  ; Select between increment and decrement (for stack ops)
+  sp_next_stack = mux8(sp_dec_result.sum, sp_inc_result.sum, sp_load_inc)
+  ; Select between stack ops result and X register (for TXS)
+  sp_next = mux8(sp_next_stack, x_out, sp_load_txs)
 
   ; On reset, SP should be 0xFF
   ; We achieve this by loading 0xFF on reset
@@ -345,20 +364,22 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; Flag register: Use 4 separate DFFs instead of register8 to avoid bit indexing issues
   ; flags_out[0] = C (carry), flags_out[1] = Z (zero), flags_out[2] = N (negative), flags_out[3] = V (overflow)
   ; Flags are updated during:
-  ;   - DECODE (state 1) for ADC/SBC/CMP (capture flags before A register updates)
+  ;   - FETCH_IMM (state 2) for ADC/SBC/CMP (when data_in contains the operand)
   ;   - DECODE (state 1) for INX/DEX/INY/DEY (implied mode, single-cycle)
   ;   - DECODE (state 1) for TAX/TAY/TXA/TYA (implied mode, single-cycle)
   ;   - FETCH_IMM (state 2) for LDA/LDX/LDY (after loading data_in)
   ;   - PULL_READ (state 10) for PLA (after loading data_in from stack)
+  ;   - EXEC_LOAD (state 23) for LDA/LDX/LDY abs (after loading data_in from memory)
   is_inc_dec_xy = or(is_inx_dex, is_iny_dey)
   is_transfer = or(or(dec.is_tax, dec.is_tay), is_txa_tya)
-  flags_load_alu = and(is_state_1, is_alu_or_cmp)
+  flags_load_alu = and(is_state_2, is_alu_or_cmp)
   flags_load_inc_dec = and(is_state_1, is_inc_dec_xy)
   flags_load_transfer = and(is_state_1, is_transfer)
   is_load_axy = or(or(dec.is_lda, dec.is_ldx), dec.is_ldy)
   flags_load_load = and(is_state_2, is_load_axy)
   flags_load_pla = is_state_10  ; PLA sets Z/N based on pulled value
-  flags_load = or(or(or(or(flags_load_alu, flags_load_inc_dec), flags_load_transfer), flags_load_load), flags_load_pla)
+  flags_load_load_abs = is_state_23  ; LDA/LDX/LDY abs sets Z/N in state 23
+  flags_load = or(or(or(or(or(flags_load_alu, flags_load_inc_dec), flags_load_transfer), flags_load_load), flags_load_pla), flags_load_load_abs)
 
   ; Compute Z and N flags from data_in for LDA/LDX/LDY
   ; Z = 1 if data_in is all zeros (use NOR reduction)
@@ -454,17 +475,24 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; Then: mux with transfer instructions
   flag_z_from_alu_xy_transfer = mux(flag_z_from_alu_or_xy, flag_z_from_transfer, is_transfer)
   flag_n_from_alu_xy_transfer = mux(flag_n_from_alu_or_xy, flag_n_from_transfer, is_transfer)
-  ; Finally: mux with data_in for load instructions (LDA/LDX/LDY and PLA)
-  flags_load_from_data_in = or(flags_load_load, flags_load_pla)
+  ; Finally: mux with data_in for load instructions (LDA/LDX/LDY, PLA, and load abs)
+  flags_load_from_data_in = or(or(flags_load_load, flags_load_pla), flags_load_load_abs)
   flag_z_src = mux(flag_z_from_alu_xy_transfer, data_in_z, flags_load_from_data_in)
   flag_n_src = mux(flag_n_from_alu_xy_transfer, data_in_n, flags_load_from_data_in)
 
   ; Individual flag registers - load when flags_load is high, clear on reset
-  ; C flag: Updated by ADC, SBC, and CMP only (NOT logic ops, NOT INX/DEX)
+  ; C flag: Updated by ADC, SBC, CMP, CLC, and SEC
   ; is_arith_or_cmp = is_arith_op OR is_cmp (ADC, SBC, CMP only)
   is_arith_or_cmp = or(is_arith_op, dec.is_cmp)
-  flags_load_c = and(is_state_1, is_arith_or_cmp)  ; Only arithmetic ops update carry
-  flag_c_next = and(flags_load_c, alu.cout)
+  flags_load_c_arith = and(is_state_2, is_arith_or_cmp)  ; Arithmetic ops update carry from ALU in FETCH_IMM
+  flags_load_c_clc = and(is_state_1, dec.is_clc)  ; CLC clears carry
+  flags_load_c_sec = and(is_state_1, dec.is_sec)  ; SEC sets carry
+  flags_load_c = or(or(flags_load_c_arith, flags_load_c_clc), flags_load_c_sec)
+  ; Carry value: from ALU for arith ops, 0 for CLC, 1 for SEC
+  flag_c_from_arith = and(flags_load_c_arith, alu.cout)
+  flag_c_from_sec = flags_load_c_sec  ; SEC sets carry to 1
+  ; CLC sets carry to 0 (already implicit - if only CLC, result is 0)
+  flag_c_next = or(flag_c_from_arith, flag_c_from_sec)
   flag_c_hold = and(not(flags_load_c), flag_c_out)
   flag_c_before_reset = or(flag_c_next, flag_c_hold)
   flag_c_in = and(flag_c_before_reset, not(reset))
@@ -486,7 +514,7 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   flag_n_out = dff(flag_n_in, clk)
 
   ; V flag: Updated by ADC and SBC only (NOT logic ops, NOT CMP)
-  flags_load_v = and(is_state_1, is_arith_op)  ; Only ADC/SBC update overflow
+  flags_load_v = and(is_state_2, is_arith_op)  ; Only ADC/SBC update overflow in FETCH_IMM
   flag_v_next = and(flags_load_v, alu.vout)
   flag_v_hold = and(not(flags_load_v), flag_v_out)
   flag_v_before_reset = or(flag_v_next, flag_v_hold)
@@ -532,11 +560,12 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; Skip PC increment flag: set when in EXEC states, cleared after DECODE
   ; The flag needs to persist through FETCH_OP and DECODE states
   ; Set when in EXEC (will be active next cycle when we enter FETCH_OP)
-  ; Include PUSH_DEC (11), PULL_READ (10), JSR_DONE (15), RTS_PULL_HI (19), RESET_DONE (22)
+  ; Include PUSH_DEC (11), PULL_READ (10), JSR_DONE (15), RTS_PULL_HI (19), RESET_DONE (22), EXEC_LOAD (23)
   set_skip_basic = or(or(is_state_5, is_state_6), or(is_state_11, is_state_10))
   set_skip_jsr_rts = or(is_state_15, is_state_19)
   set_skip_reset = is_state_22
-  set_skip = or(or(set_skip_basic, set_skip_jsr_rts), set_skip_reset)
+  set_skip_load = is_state_23  ; EXEC_LOAD also needs to skip PC inc
+  set_skip = or(or(or(set_skip_basic, set_skip_jsr_rts), set_skip_reset), set_skip_load)
   ; Clear after DECODE (when in FETCH_IMM, FETCH_LO, HALTED, PULL_INC, RTS_INC1), OR on reset
   clear_skip_states = or(or(or(or(is_state_2, is_state_3), is_state_7), is_state_9), is_state_16)
   clear_skip = or(clear_skip_states, reset)
@@ -587,16 +616,20 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
 
   ; From DECODE (1):
   ;   if LDA/LDX/LDY/ADC/CMP/BEQ/BNE/AND/ORA/EOR/SBC -> FETCH_IMM (2): next = 00010
-  ;   if STA/STX/STY/JMP/JSR -> FETCH_LO (3): next = 00011
-  ;   if INX/DEX/INY/DEY/TAX/TAY/TXA/TYA -> FETCH_OP (0): next = 00000 (implied, single-cycle)
+  ;   if STA/STX/STY/JMP/JSR/LDA_abs/LDX_abs/LDY_abs -> FETCH_LO (3): next = 00011
+  ;   if INX/DEX/INY/DEY/TAX/TAY/TXA/TYA/TXS/CLC/SEC -> FETCH_OP (0): next = 00000 (implied, single-cycle)
   ;   if PHA -> PUSH (8): next = 01000
   ;   if PLA -> PULL_INC (9): next = 01001
   ;   if RTS -> RTS_INC1 (16): next = 10000
   ;   if HLT -> HALTED (7): next = 00111
   needs_byte = or(dec.needs_imm, dec.needs_rel)
   from_1_to_2 = and(is_state_1, needs_byte)
-  from_1_to_3 = and(is_state_1, dec.needs_addr)
-  is_implied_single_cycle = or(is_inc_dec_xy, is_transfer)
+  ; needs_addr covers stores and jumps; needs_load_addr covers load abs instructions
+  needs_any_addr = or(dec.needs_addr, dec.needs_load_addr)
+  from_1_to_3 = and(is_state_1, needs_any_addr)
+  ; Include TXS, CLC, SEC in implied single-cycle instructions
+  is_flag_op = or(dec.is_clc, dec.is_sec)
+  is_implied_single_cycle = or(or(or(is_inc_dec_xy, is_transfer), dec.is_txs), is_flag_op)
   from_1_to_0 = and(is_state_1, is_implied_single_cycle)
   from_1_to_7 = and(is_state_1, dec.is_hlt)
   from_1_to_8 = and(is_state_1, dec.is_pha)
@@ -613,10 +646,12 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ;   if STA/STX/STY -> EXEC_ST (5): next = 00101
   ;   if JMP -> EXEC_JMP (6): next = 00110
   ;   if JSR -> JSR_PUSH_HI (12): next = 01100
+  ;   if LDA_abs/LDX_abs/LDY_abs -> EXEC_LOAD (23): next = 10111
   is_store = or(or(dec.is_sta, dec.is_stx), dec.is_sty)
   from_4_to_5 = and(is_state_4, is_store)
   from_4_to_6 = and(is_state_4, dec.is_jmp)
   from_4_to_12 = and(is_state_4, dec.is_jsr)
+  from_4_to_23 = and(is_state_4, dec.needs_load_addr)  ; Load abs -> EXEC_LOAD
 
   ; From EXEC_ST (5) -> FETCH_OP (0): next = 00000
   from_5_to_0 = is_state_5
@@ -675,13 +710,16 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; From RESET_DONE (22) -> FETCH_OP (0): next = 00000 (PC loaded from reset vector, done)
   from_22_to_0 = is_state_22
 
+  ; From EXEC_LOAD (23) -> FETCH_OP (0): next = 00000 (load abs complete)
+  from_23_to_0 = is_state_23
+
   ; Calculate next state bits (5-bit encoding)
   ; Binary encodings:
   ;   0=00000, 1=00001, 2=00010, 3=00011, 4=00100, 5=00101, 6=00110, 7=00111
   ;   8=01000, 9=01001, 10=01010, 11=01011, 12=01100, 13=01101, 14=01110, 15=01111
-  ;   16=10000, 17=10001, 18=10010, 19=10011, 20=10100, 21=10101, 22=10110
+  ;   16=10000, 17=10001, 18=10010, 19=10011, 20=10100, 21=10101, 22=10110, 23=10111
 
-  ; Bit 0: set for states 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21
+  ; Bit 0: set for states 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23
   goto_1 = from_0_to_1
   goto_3 = from_1_to_3
   goto_5 = from_4_to_5
@@ -693,11 +731,12 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   goto_17 = from_16_to_17
   goto_19 = from_18_to_19
   goto_21 = from_20_to_21
+  goto_23 = from_4_to_23  ; Load abs -> EXEC_LOAD
   set_bit_0_low = or(or(or(goto_1, goto_3), or(goto_5, goto_7)), or(goto_9, goto_11))
-  set_bit_0_high = or(or(or(goto_13, goto_15), or(goto_17, goto_19)), goto_21)
+  set_bit_0_high = or(or(or(goto_13, goto_15), or(goto_17, goto_19)), or(goto_21, goto_23))
   set_bit_0 = or(set_bit_0_low, set_bit_0_high)
 
-  ; Bit 1: set for states 2, 3, 6, 7, 10, 11, 14, 15, 18, 19, 22
+  ; Bit 1: set for states 2, 3, 6, 7, 10, 11, 14, 15, 18, 19, 22, 23
   goto_2 = from_1_to_2
   goto_6 = from_4_to_6
   goto_10 = from_9_to_10
@@ -705,16 +744,16 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   goto_18 = from_17_to_18
   goto_22 = from_21_to_22
   set_bit_1_low = or(or(or(goto_2, goto_3), or(goto_6, goto_7)), or(goto_10, goto_11))
-  set_bit_1_high = or(or(or(goto_14, goto_15), or(goto_18, goto_19)), goto_22)
+  set_bit_1_high = or(or(or(goto_14, goto_15), or(goto_18, goto_19)), or(goto_22, goto_23))
   set_bit_1 = or(set_bit_1_low, set_bit_1_high)
 
-  ; Bit 2: set for states 4, 5, 6, 7, 12, 13, 14, 15, 20, 21, 22
+  ; Bit 2: set for states 4, 5, 6, 7, 12, 13, 14, 15, 20, 21, 22, 23
   goto_4 = from_3_to_4
   goto_12 = from_4_to_12
   goto_20 = reset  ; On reset, go to state 20
   set_bit_2_low = or(or(goto_4, goto_5), or(goto_6, goto_7))
   set_bit_2_mid = or(or(goto_12, goto_13), or(goto_14, goto_15))
-  set_bit_2_high = or(or(goto_20, goto_21), goto_22)
+  set_bit_2_high = or(or(or(goto_20, goto_21), goto_22), goto_23)
   set_bit_2 = or(or(set_bit_2_low, set_bit_2_mid), set_bit_2_high)
 
   ; Bit 3: set for states 8, 9, 10, 11, 12, 13, 14, 15
@@ -723,10 +762,10 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   set_bit_3_high = or(or(goto_12, goto_13), or(goto_14, goto_15))
   set_bit_3 = or(set_bit_3_low, set_bit_3_high)
 
-  ; Bit 4: set for states 16, 17, 18, 19, 20, 21, 22
+  ; Bit 4: set for states 16, 17, 18, 19, 20, 21, 22, 23
   goto_16 = from_1_to_16
   set_bit_4_rts = or(or(goto_16, goto_17), or(goto_18, goto_19))
-  set_bit_4_reset = or(or(goto_20, goto_21), goto_22)
+  set_bit_4_reset = or(or(or(goto_20, goto_21), goto_22), goto_23)
   set_bit_4 = or(set_bit_4_rts, set_bit_4_reset)
 
   ; Apply reset (goes to state 20 = 10100 to read reset vector)
@@ -742,7 +781,7 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   ; ==========================================
   ; Address bus:
   ;   - PC during fetch states (0, 1, 2, 3, 4)
-  ;   - operand_addr during EXEC_ST (5)
+  ;   - operand_addr during EXEC_ST (5) and EXEC_LOAD (23)
   ;   - stack_addr during:
   ;     - PHA: PUSH (8)
   ;     - PLA: PULL_INC (9), PULL_READ (10)
@@ -756,7 +795,9 @@ module cpu_minimal(clk, reset, data_in:8) -> (addr:16, data_out:8, mem_write, ha
   is_stack_op_rts = or(or(or(is_state_16, is_state_17), is_state_18), is_state_19)
   is_stack_op = or(or(is_stack_op_pha_pla, is_stack_op_jsr), is_stack_op_rts)
   addr_store_or_stack = mux16(operand_addr, stack_addr, is_stack_op)
-  is_addr_not_pc = or(is_state_5, is_stack_op)
+  ; State 5 (EXEC_ST) and state 23 (EXEC_LOAD) both use operand_addr
+  is_operand_addr_state = or(is_state_5, is_state_23)
+  is_addr_not_pc = or(is_operand_addr_state, is_stack_op)
   addr_before_reset = mux16(pc_out, addr_store_or_stack, is_addr_not_pc)
 
   ; Reset vector addresses: $FFFC for low byte, $FFFD for high byte
